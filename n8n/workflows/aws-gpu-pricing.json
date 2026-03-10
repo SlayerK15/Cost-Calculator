@@ -1,0 +1,73 @@
+{
+  "name": "AWS GPU Pricing Fetcher",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 6 }]
+        }
+      },
+      "name": "Schedule (Every 6h)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "id": "schedule-aws"
+    },
+    {
+      "parameters": {
+        "url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonEC2/current/us-east-1/index.json",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "name": "Fetch AWS Pricing API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [470, 300],
+      "id": "fetch-aws",
+      "notes": "AWS Bulk Pricing API. This is a large JSON file (~1GB). In production, use the AWS Price List Query API with filters for GPU instances only."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract GPU instances from AWS pricing data\n// In production, this would parse the full AWS pricing JSON.\n// For now, we use curated GPU instance data.\n\nconst gpuInstances = [\n  { provider: 'aws', instance_type: 'p5.48xlarge', gpu_type: 'H100_80GB', gpu_count: 8, vram_per_gpu_gb: 80, total_vram_gb: 640, cost_per_hour: 98.32, region: 'us-east-1', storage_cost_per_gb_month: 0.08, bandwidth_cost_per_gb: 0.09, vcpus: 192, ram_gb: 2048 },\n  { provider: 'aws', instance_type: 'p4d.24xlarge', gpu_type: 'A100_40GB', gpu_count: 8, vram_per_gpu_gb: 40, total_vram_gb: 320, cost_per_hour: 32.77, region: 'us-east-1', storage_cost_per_gb_month: 0.08, bandwidth_cost_per_gb: 0.09, vcpus: 96, ram_gb: 1152 },\n  { provider: 'aws', instance_type: 'p4de.24xlarge', gpu_type: 'A100_80GB', gpu_count: 8, vram_per_gpu_gb: 80, total_vram_gb: 640, cost_per_hour: 40.97, region: 'us-east-1', storage_cost_per_gb_month: 0.08, bandwidth_cost_per_gb: 0.09, vcpus: 96, ram_gb: 1152 },\n  { provider: 'aws', instance_type: 'g5.xlarge', gpu_type: 'A10G_24GB', gpu_count: 1, vram_per_gpu_gb: 24, total_vram_gb: 24, cost_per_hour: 1.006, region: 'us-east-1', storage_cost_per_gb_month: 0.08, bandwidth_cost_per_gb: 0.09, vcpus: 4, ram_gb: 16 },\n  { provider: 'aws', instance_type: 'g5.2xlarge', gpu_type: 'A10G_24GB', gpu_count: 1, vram_per_gpu_gb: 24, total_vram_gb: 24, cost_per_hour: 1.212, region: 'us-east-1', storage_cost_per_gb_month: 0.08, bandwidth_cost_per_gb: 0.09, vcpus: 8, ram_gb: 32 },\n  { provider: 'aws', instance_type: 'g5.4xlarge', gpu_type: 'A10G_24GB', gpu_count: 1, vram_per_gpu_gb: 24, total_vram_gb: 24, cost_per_hour: 1.624, region: 'us-east-1', storage_cost_per_gb_month: 0.08, bandwidth_cost_per_gb: 0.09, vcpus: 16, ram_gb: 64 },\n  { provider: 'aws', instance_type: 'g5.12xlarge', gpu_type: 'A10G_24GB', gpu_count: 4, vram_per_gpu_gb: 24, total_vram_gb: 96, cost_per_hour: 5.672, region: 'us-east-1', storage_cost_per_gb_month: 0.08, bandwidth_cost_per_gb: 0.09, vcpus: 48, ram_gb: 192 },\n  { provider: 'aws', instance_type: 'g5.48xlarge', gpu_type: 'A10G_24GB', gpu_count: 8, vram_per_gpu_gb: 24, total_vram_gb: 192, cost_per_hour: 16.288, region: 'us-east-1', storage_cost_per_gb_month: 0.08, bandwidth_cost_per_gb: 0.09, vcpus: 192, ram_gb: 768 },\n  { provider: 'aws', instance_type: 'g6.xlarge', gpu_type: 'L4_24GB', gpu_count: 1, vram_per_gpu_gb: 24, total_vram_gb: 24, cost_per_hour: 0.8048, region: 'us-east-1', storage_cost_per_gb_month: 0.08, bandwidth_cost_per_gb: 0.09, vcpus: 4, ram_gb: 16 },\n  { provider: 'aws', instance_type: 'g6.2xlarge', gpu_type: 'L4_24GB', gpu_count: 1, vram_per_gpu_gb: 24, total_vram_gb: 24, cost_per_hour: 0.9776, region: 'us-east-1', storage_cost_per_gb_month: 0.08, bandwidth_cost_per_gb: 0.09, vcpus: 8, ram_gb: 32 },\n  { provider: 'aws', instance_type: 'g6.12xlarge', gpu_type: 'L4_24GB', gpu_count: 4, vram_per_gpu_gb: 24, total_vram_gb: 96, cost_per_hour: 4.6016, region: 'us-east-1', storage_cost_per_gb_month: 0.08, bandwidth_cost_per_gb: 0.09, vcpus: 48, ram_gb: 192 },\n  { provider: 'aws', instance_type: 'g4dn.xlarge', gpu_type: 'T4_16GB', gpu_count: 1, vram_per_gpu_gb: 16, total_vram_gb: 16, cost_per_hour: 0.526, region: 'us-east-1', storage_cost_per_gb_month: 0.08, bandwidth_cost_per_gb: 0.09, vcpus: 4, ram_gb: 16 },\n  { provider: 'aws', instance_type: 'g4dn.12xlarge', gpu_type: 'T4_16GB', gpu_count: 4, vram_per_gpu_gb: 16, total_vram_gb: 64, cost_per_hour: 3.912, region: 'us-east-1', storage_cost_per_gb_month: 0.08, bandwidth_cost_per_gb: 0.09, vcpus: 48, ram_gb: 192 }\n];\n\nreturn [{ json: { prices: gpuInstances, source: 'n8n-aws' } }];"
+      },
+      "name": "Parse AWS GPU Prices",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [690, 300],
+      "id": "parse-aws"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.WEBHOOK_URL }}/api/pricing/webhook/gpu-prices",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Webhook-Secret", "value": "={{ $env.WEBHOOK_SECRET }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": []
+        },
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "specifyBody": "json",
+        "options": {}
+      },
+      "name": "Push to Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [910, 300],
+      "id": "push-aws"
+    }
+  ],
+  "connections": {
+    "Schedule (Every 6h)": { "main": [[{ "node": "Fetch AWS Pricing API", "type": "main", "index": 0 }]] },
+    "Fetch AWS Pricing API": { "main": [[{ "node": "Parse AWS GPU Prices", "type": "main", "index": 0 }]] },
+    "Parse AWS GPU Prices": { "main": [[{ "node": "Push to Backend", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "pricing" }]
+}

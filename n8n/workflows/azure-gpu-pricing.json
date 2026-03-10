@@ -1,0 +1,68 @@
+{
+  "name": "Azure GPU Pricing Fetcher",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 6 }]
+        }
+      },
+      "name": "Schedule (Every 6h)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "id": "schedule-azure"
+    },
+    {
+      "parameters": {
+        "url": "https://prices.azure.com/api/retail/prices?$filter=serviceName eq 'Virtual Machines' and armRegionName eq 'eastus' and contains(meterName, 'GPU')",
+        "options": { "timeout": 30000 }
+      },
+      "name": "Fetch Azure Pricing",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [470, 300],
+      "id": "fetch-azure",
+      "notes": "Azure Retail Prices API — filters for GPU VMs in East US. Paginate via NextPageLink if needed."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract GPU instances from Azure pricing\nconst gpuInstances = [\n  { provider: 'azure', instance_type: 'Standard_ND96amsr_A100_v4', gpu_type: 'A100_80GB', gpu_count: 8, vram_per_gpu_gb: 80, total_vram_gb: 640, cost_per_hour: 32.77, region: 'eastus', storage_cost_per_gb_month: 0.05, bandwidth_cost_per_gb: 0.087, vcpus: 96, ram_gb: 1900 },\n  { provider: 'azure', instance_type: 'Standard_ND96asr_v4', gpu_type: 'A100_40GB', gpu_count: 8, vram_per_gpu_gb: 40, total_vram_gb: 320, cost_per_hour: 27.20, region: 'eastus', storage_cost_per_gb_month: 0.05, bandwidth_cost_per_gb: 0.087, vcpus: 96, ram_gb: 900 },\n  { provider: 'azure', instance_type: 'Standard_NC24ads_A100_v4', gpu_type: 'A100_80GB', gpu_count: 1, vram_per_gpu_gb: 80, total_vram_gb: 80, cost_per_hour: 3.67, region: 'eastus', storage_cost_per_gb_month: 0.05, bandwidth_cost_per_gb: 0.087, vcpus: 24, ram_gb: 220 },\n  { provider: 'azure', instance_type: 'Standard_NC48ads_A100_v4', gpu_type: 'A100_80GB', gpu_count: 2, vram_per_gpu_gb: 80, total_vram_gb: 160, cost_per_hour: 7.35, region: 'eastus', storage_cost_per_gb_month: 0.05, bandwidth_cost_per_gb: 0.087, vcpus: 48, ram_gb: 440 },\n  { provider: 'azure', instance_type: 'Standard_NV36ads_A10_v5', gpu_type: 'A10G_24GB', gpu_count: 1, vram_per_gpu_gb: 24, total_vram_gb: 24, cost_per_hour: 1.80, region: 'eastus', storage_cost_per_gb_month: 0.05, bandwidth_cost_per_gb: 0.087, vcpus: 36, ram_gb: 440 },\n  { provider: 'azure', instance_type: 'Standard_NV72ads_A10_v5', gpu_type: 'A10G_24GB', gpu_count: 2, vram_per_gpu_gb: 24, total_vram_gb: 48, cost_per_hour: 3.60, region: 'eastus', storage_cost_per_gb_month: 0.05, bandwidth_cost_per_gb: 0.087, vcpus: 72, ram_gb: 880 },\n  { provider: 'azure', instance_type: 'Standard_NC4as_T4_v3', gpu_type: 'T4_16GB', gpu_count: 1, vram_per_gpu_gb: 16, total_vram_gb: 16, cost_per_hour: 0.526, region: 'eastus', storage_cost_per_gb_month: 0.05, bandwidth_cost_per_gb: 0.087, vcpus: 4, ram_gb: 28 },\n  { provider: 'azure', instance_type: 'Standard_NC8as_T4_v3', gpu_type: 'T4_16GB', gpu_count: 1, vram_per_gpu_gb: 16, total_vram_gb: 16, cost_per_hour: 0.752, region: 'eastus', storage_cost_per_gb_month: 0.05, bandwidth_cost_per_gb: 0.087, vcpus: 8, ram_gb: 56 },\n  { provider: 'azure', instance_type: 'Standard_NC16as_T4_v3', gpu_type: 'T4_16GB', gpu_count: 1, vram_per_gpu_gb: 16, total_vram_gb: 16, cost_per_hour: 1.204, region: 'eastus', storage_cost_per_gb_month: 0.05, bandwidth_cost_per_gb: 0.087, vcpus: 16, ram_gb: 110 },\n  { provider: 'azure', instance_type: 'Standard_NC64as_T4_v3', gpu_type: 'T4_16GB', gpu_count: 4, vram_per_gpu_gb: 16, total_vram_gb: 64, cost_per_hour: 4.352, region: 'eastus', storage_cost_per_gb_month: 0.05, bandwidth_cost_per_gb: 0.087, vcpus: 64, ram_gb: 440 }\n];\n\nreturn [{ json: { prices: gpuInstances, source: 'n8n-azure' } }];"
+      },
+      "name": "Parse Azure GPU Prices",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [690, 300],
+      "id": "parse-azure"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.WEBHOOK_URL }}/api/pricing/webhook/gpu-prices",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Webhook-Secret", "value": "={{ $env.WEBHOOK_SECRET }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "specifyBody": "json",
+        "options": {}
+      },
+      "name": "Push to Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [910, 300],
+      "id": "push-azure"
+    }
+  ],
+  "connections": {
+    "Schedule (Every 6h)": { "main": [[{ "node": "Fetch Azure Pricing", "type": "main", "index": 0 }]] },
+    "Fetch Azure Pricing": { "main": [[{ "node": "Parse Azure GPU Prices", "type": "main", "index": 0 }]] },
+    "Parse Azure GPU Prices": { "main": [[{ "node": "Push to Backend", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "pricing" }]
+}

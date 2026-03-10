@@ -1,0 +1,55 @@
+{
+  "name": "API Provider Pricing Fetcher",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 12 }]
+        }
+      },
+      "name": "Schedule (Every 12h)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "id": "schedule-api"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fetch and compile API provider pricing.\n// In production, these would scrape or call pricing APIs:\n//   - OpenAI: https://openai.com/api/pricing/\n//   - Anthropic: https://docs.anthropic.com/en/docs/about-claude/pricing\n//   - Google: https://ai.google.dev/pricing\n//   - Mistral: https://mistral.ai/technology/#pricing\n//\n// For now, we use curated pricing data that n8n operators can\n// update by editing this Code node.\n\nconst apiPrices = [\n  { provider: 'OpenAI', model: 'GPT-4o', input_cost_per_million: 2.50, output_cost_per_million: 10.00 },\n  { provider: 'OpenAI', model: 'GPT-4o mini', input_cost_per_million: 0.15, output_cost_per_million: 0.60 },\n  { provider: 'OpenAI', model: 'GPT-4 Turbo', input_cost_per_million: 10.00, output_cost_per_million: 30.00 },\n  { provider: 'OpenAI', model: 'o1', input_cost_per_million: 15.00, output_cost_per_million: 60.00 },\n  { provider: 'Anthropic', model: 'Claude 4 Sonnet', input_cost_per_million: 3.00, output_cost_per_million: 15.00 },\n  { provider: 'Anthropic', model: 'Claude 4 Opus', input_cost_per_million: 15.00, output_cost_per_million: 75.00 },\n  { provider: 'Anthropic', model: 'Claude 3.5 Haiku', input_cost_per_million: 0.80, output_cost_per_million: 4.00 },\n  { provider: 'Google', model: 'Gemini 2.0 Flash', input_cost_per_million: 0.10, output_cost_per_million: 0.40 },\n  { provider: 'Google', model: 'Gemini 1.5 Pro', input_cost_per_million: 1.25, output_cost_per_million: 5.00 },\n  { provider: 'Mistral', model: 'Mistral Large', input_cost_per_million: 2.00, output_cost_per_million: 6.00 },\n  { provider: 'Mistral', model: 'Mistral Small', input_cost_per_million: 0.20, output_cost_per_million: 0.60 },\n  { provider: 'DeepSeek', model: 'DeepSeek V3', input_cost_per_million: 0.27, output_cost_per_million: 1.10 }\n];\n\nreturn [{ json: { prices: apiPrices, source: 'n8n-api-pricing' } }];"
+      },
+      "name": "Compile API Pricing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 300],
+      "id": "compile-api"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.WEBHOOK_URL }}/api/pricing/webhook/api-prices",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Webhook-Secret", "value": "={{ $env.WEBHOOK_SECRET }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "specifyBody": "json",
+        "options": {}
+      },
+      "name": "Push to Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [690, 300],
+      "id": "push-api"
+    }
+  ],
+  "connections": {
+    "Schedule (Every 12h)": { "main": [[{ "node": "Compile API Pricing", "type": "main", "index": 0 }]] },
+    "Compile API Pricing": { "main": [[{ "node": "Push to Backend", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "pricing" }]
+}

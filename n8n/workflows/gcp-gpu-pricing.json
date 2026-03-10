@@ -1,0 +1,68 @@
+{
+  "name": "GCP GPU Pricing Fetcher",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 6 }]
+        }
+      },
+      "name": "Schedule (Every 6h)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "id": "schedule-gcp"
+    },
+    {
+      "parameters": {
+        "url": "https://cloudpricingcalculator.appspot.com/static/data/pricelist.json",
+        "options": { "timeout": 30000 }
+      },
+      "name": "Fetch GCP Pricing",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [470, 300],
+      "id": "fetch-gcp",
+      "notes": "GCP public pricing JSON. In production, use the Cloud Billing Catalog API for real-time data."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract GPU instances from GCP pricing data\nconst gpuInstances = [\n  { provider: 'gcp', instance_type: 'a3-highgpu-8g', gpu_type: 'H100_80GB', gpu_count: 8, vram_per_gpu_gb: 80, total_vram_gb: 640, cost_per_hour: 101.22, region: 'us-central1', storage_cost_per_gb_month: 0.04, bandwidth_cost_per_gb: 0.12, vcpus: 208, ram_gb: 1872 },\n  { provider: 'gcp', instance_type: 'a2-ultragpu-1g', gpu_type: 'A100_80GB', gpu_count: 1, vram_per_gpu_gb: 80, total_vram_gb: 80, cost_per_hour: 5.07, region: 'us-central1', storage_cost_per_gb_month: 0.04, bandwidth_cost_per_gb: 0.12, vcpus: 12, ram_gb: 170 },\n  { provider: 'gcp', instance_type: 'a2-highgpu-1g', gpu_type: 'A100_40GB', gpu_count: 1, vram_per_gpu_gb: 40, total_vram_gb: 40, cost_per_hour: 3.67, region: 'us-central1', storage_cost_per_gb_month: 0.04, bandwidth_cost_per_gb: 0.12, vcpus: 12, ram_gb: 85 },\n  { provider: 'gcp', instance_type: 'a2-highgpu-2g', gpu_type: 'A100_40GB', gpu_count: 2, vram_per_gpu_gb: 40, total_vram_gb: 80, cost_per_hour: 7.35, region: 'us-central1', storage_cost_per_gb_month: 0.04, bandwidth_cost_per_gb: 0.12, vcpus: 24, ram_gb: 170 },\n  { provider: 'gcp', instance_type: 'a2-highgpu-4g', gpu_type: 'A100_40GB', gpu_count: 4, vram_per_gpu_gb: 40, total_vram_gb: 160, cost_per_hour: 14.69, region: 'us-central1', storage_cost_per_gb_month: 0.04, bandwidth_cost_per_gb: 0.12, vcpus: 48, ram_gb: 340 },\n  { provider: 'gcp', instance_type: 'a2-highgpu-8g', gpu_type: 'A100_40GB', gpu_count: 8, vram_per_gpu_gb: 40, total_vram_gb: 320, cost_per_hour: 29.39, region: 'us-central1', storage_cost_per_gb_month: 0.04, bandwidth_cost_per_gb: 0.12, vcpus: 96, ram_gb: 680 },\n  { provider: 'gcp', instance_type: 'g2-standard-4', gpu_type: 'L4_24GB', gpu_count: 1, vram_per_gpu_gb: 24, total_vram_gb: 24, cost_per_hour: 0.7211, region: 'us-central1', storage_cost_per_gb_month: 0.04, bandwidth_cost_per_gb: 0.12, vcpus: 4, ram_gb: 16 },\n  { provider: 'gcp', instance_type: 'g2-standard-8', gpu_type: 'L4_24GB', gpu_count: 1, vram_per_gpu_gb: 24, total_vram_gb: 24, cost_per_hour: 0.8535, region: 'us-central1', storage_cost_per_gb_month: 0.04, bandwidth_cost_per_gb: 0.12, vcpus: 8, ram_gb: 32 },\n  { provider: 'gcp', instance_type: 'g2-standard-24', gpu_type: 'L4_24GB', gpu_count: 2, vram_per_gpu_gb: 24, total_vram_gb: 48, cost_per_hour: 2.3838, region: 'us-central1', storage_cost_per_gb_month: 0.04, bandwidth_cost_per_gb: 0.12, vcpus: 24, ram_gb: 96 },\n  { provider: 'gcp', instance_type: 'g2-standard-48', gpu_type: 'L4_24GB', gpu_count: 4, vram_per_gpu_gb: 24, total_vram_gb: 96, cost_per_hour: 4.7677, region: 'us-central1', storage_cost_per_gb_month: 0.04, bandwidth_cost_per_gb: 0.12, vcpus: 48, ram_gb: 192 },\n  { provider: 'gcp', instance_type: 'n1-standard-4-t4', gpu_type: 'T4_16GB', gpu_count: 1, vram_per_gpu_gb: 16, total_vram_gb: 16, cost_per_hour: 0.545, region: 'us-central1', storage_cost_per_gb_month: 0.04, bandwidth_cost_per_gb: 0.12, vcpus: 4, ram_gb: 15 },\n  { provider: 'gcp', instance_type: 'n1-standard-8-t4', gpu_type: 'T4_16GB', gpu_count: 1, vram_per_gpu_gb: 16, total_vram_gb: 16, cost_per_hour: 0.735, region: 'us-central1', storage_cost_per_gb_month: 0.04, bandwidth_cost_per_gb: 0.12, vcpus: 8, ram_gb: 30 }\n];\n\nreturn [{ json: { prices: gpuInstances, source: 'n8n-gcp' } }];"
+      },
+      "name": "Parse GCP GPU Prices",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [690, 300],
+      "id": "parse-gcp"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.WEBHOOK_URL }}/api/pricing/webhook/gpu-prices",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Webhook-Secret", "value": "={{ $env.WEBHOOK_SECRET }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "specifyBody": "json",
+        "options": {}
+      },
+      "name": "Push to Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [910, 300],
+      "id": "push-gcp"
+    }
+  ],
+  "connections": {
+    "Schedule (Every 6h)": { "main": [[{ "node": "Fetch GCP Pricing", "type": "main", "index": 0 }]] },
+    "Fetch GCP Pricing": { "main": [[{ "node": "Parse GCP GPU Prices", "type": "main", "index": 0 }]] },
+    "Parse GCP GPU Prices": { "main": [[{ "node": "Push to Backend", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "pricing" }]
+}
