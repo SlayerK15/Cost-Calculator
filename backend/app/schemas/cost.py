@@ -23,6 +23,8 @@ class PublicCostEstimateRequest(BaseModel):
     cloud_provider: str = "aws"
     expected_qps: float = 1.0
     avg_tokens_per_request: int = 512
+    avg_input_tokens: int = 0   # 0 = use avg_tokens_per_request as fallback
+    avg_output_tokens: int = 0  # 0 = use avg_tokens_per_request as fallback
     hours_per_day: int = 24
     days_per_month: int = 30
     autoscaling_enabled: bool = False

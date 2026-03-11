@@ -183,10 +183,10 @@ def get_api_provider_prices() -> list[dict]:
         {"provider": "Anthropic", "model": "Claude Opus 4", "input_cost_per_million": 15.00, "output_cost_per_million": 75.00},
         {"provider": "Anthropic", "model": "Claude Haiku 3.5", "input_cost_per_million": 0.80, "output_cost_per_million": 4.00},
         {"provider": "Google", "model": "Gemini 2.0 Flash", "input_cost_per_million": 0.10, "output_cost_per_million": 0.40},
-        {"provider": "Google", "model": "Gemini 1.5 Pro", "input_cost_per_million": 1.25, "output_cost_per_million": 5.00},
+        {"provider": "Google", "model": "Gemini 1.5 Pro", "input_cost_per_million": 0.125, "output_cost_per_million": 0.375},
         {"provider": "Mistral", "model": "Mistral Large", "input_cost_per_million": 2.00, "output_cost_per_million": 6.00},
-        {"provider": "Mistral", "model": "Mistral Small", "input_cost_per_million": 0.20, "output_cost_per_million": 0.60},
-        {"provider": "DeepSeek", "model": "DeepSeek V3", "input_cost_per_million": 0.27, "output_cost_per_million": 1.10},
+        {"provider": "Mistral", "model": "Mistral Small", "input_cost_per_million": 0.10, "output_cost_per_million": 0.30},
+        {"provider": "DeepSeek", "model": "DeepSeek V3", "input_cost_per_million": 0.27, "output_cost_per_million": 0.42},
     ]
 
 

@@ -24,6 +24,28 @@ BYTES_PER_PARAM = {
 
 HOURS_PER_MONTH = 730  # average
 
+# Architecture heuristics based on well-known transformer model families.
+# Maps parameter-count ranges to (hidden_dim, num_layers).
+# Sources: Llama, Mistral, Phi, Gemma architecture configs.
+_ARCH_TABLE: list[tuple[float, float, int, int]] = [
+    #  (min_B, max_B, hidden_dim, layers)
+    (0.0,    1.0,   1024,  16),
+    (1.0,    3.0,   2048,  24),
+    (3.0,    9.0,   4096,  32),   # Llama 7/8B, Mistral 7B
+    (9.0,   15.0,   5120,  40),   # Llama 13B, Phi-3 medium 14B
+    (15.0,  40.0,   6656,  48),
+    (40.0,  80.0,   8192,  80),
+    (80.0, 1000.0, 12288,  96),
+]
+
+
+def _estimate_architecture(parameters_billion: float) -> tuple[int, int]:
+    """Return (hidden_dim, num_layers) estimated from parameter count."""
+    for min_b, max_b, hidden, layers in _ARCH_TABLE:
+        if min_b <= parameters_billion < max_b:
+            return hidden, layers
+    return 12288, 96
+
 
 @dataclass
 class VRAMEstimate:
@@ -110,12 +132,10 @@ def calculate_vram(
             2 * num_layers * hidden_dim * context_length * batch_size * bytes_per_param
         )
     else:
-        # Heuristic: KV cache is roughly proportional to params and context
-        # For a 7B model at 4096 context, KV cache ≈ 1-2GB
-        estimated_hidden = int(math.sqrt(parameters_billion * 1e9 / 100))
-        estimated_layers = max(int(parameters_billion * 4), 32)
+        # Use lookup table for architecture estimation based on param count
+        estimated_hidden, estimated_layers = _estimate_architecture(parameters_billion)
         kv_cache_bytes = (
-            2 * estimated_layers * estimated_hidden * context_length * batch_size * 2
+            2 * estimated_layers * estimated_hidden * context_length * batch_size * bytes_per_param
         )
     kv_cache_gb = kv_cache_bytes / (1024 ** 3)
 

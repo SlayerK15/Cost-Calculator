@@ -31,10 +31,10 @@ _FALLBACK_API_PRICING = [
     {"provider": "Anthropic", "model": "Claude Opus 4", "input": 15.00, "output": 75.00},
     {"provider": "Anthropic", "model": "Claude Haiku 3.5", "input": 0.80, "output": 4.00},
     {"provider": "Google", "model": "Gemini 2.0 Flash", "input": 0.10, "output": 0.40},
-    {"provider": "Google", "model": "Gemini 1.5 Pro", "input": 1.25, "output": 5.00},
+    {"provider": "Google", "model": "Gemini 1.5 Pro", "input": 0.125, "output": 0.375},
     {"provider": "Mistral", "model": "Mistral Large", "input": 2.00, "output": 6.00},
-    {"provider": "Mistral", "model": "Mistral Small", "input": 0.20, "output": 0.60},
-    {"provider": "DeepSeek", "model": "DeepSeek V3", "input": 0.27, "output": 1.10},
+    {"provider": "Mistral", "model": "Mistral Small", "input": 0.10, "output": 0.30},
+    {"provider": "DeepSeek", "model": "DeepSeek V3", "input": 0.27, "output": 0.42},
 ]
 
 
@@ -200,9 +200,9 @@ async def compare_with_api_providers(data: PublicCostEstimateRequest):
 
     # Calculate usage volumes based on actual active time
     monthly_requests = int(data.expected_qps * 3600 * data.hours_per_day * data.days_per_month)
-    # Assume input tokens ~= output tokens for simplicity (users send a prompt, get a response)
-    avg_input_tokens = data.avg_tokens_per_request  # prompt length
-    avg_output_tokens = data.avg_tokens_per_request  # generation length
+    # Use separate input/output tokens if provided, else fall back to avg_tokens_per_request
+    avg_input_tokens = data.avg_input_tokens if data.avg_input_tokens > 0 else data.avg_tokens_per_request
+    avg_output_tokens = data.avg_output_tokens if data.avg_output_tokens > 0 else max(data.avg_tokens_per_request // 3, 1)
     monthly_input_tokens = monthly_requests * avg_input_tokens
     monthly_output_tokens = monthly_requests * avg_output_tokens
 

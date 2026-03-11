@@ -25,6 +25,8 @@ export default function EstimatePage() {
   const [provider, setProvider] = useState("aws");
   const [qps, setQps] = useState(1);
   const [tokensPerReq, setTokensPerReq] = useState(512);
+  const [inputTokens, setInputTokens] = useState(500);
+  const [outputTokens, setOutputTokens] = useState(150);
   const [hoursPerDay, setHoursPerDay] = useState(24);
   const [daysPerMonth, setDaysPerMonth] = useState(30);
   const [autoscaling, setAutoscaling] = useState(false);
@@ -55,7 +57,7 @@ export default function EstimatePage() {
         : null;
       if (match) {
         setSelectedModelId(match.id);
-        setContextLength(match.context_length);
+        setContextLength(Math.min(match.context_length, 4096));
       } else {
         // Fall back to custom model with the given params
         setSelectedModelId("__custom");
@@ -101,7 +103,7 @@ export default function EstimatePage() {
       name: model.name,
       parameters_billion: model.parameters_billion,
       precision,
-      context_length: model.context_length,
+      context_length: contextLength,
     };
   }
 
@@ -122,6 +124,8 @@ export default function EstimatePage() {
       cloud_provider: provider,
       expected_qps: qps,
       avg_tokens_per_request: tokensPerReq,
+      avg_input_tokens: inputTokens,
+      avg_output_tokens: outputTokens,
       hours_per_day: hoursPerDay,
       days_per_month: daysPerMonth,
       autoscaling_enabled: autoscaling,
@@ -205,7 +209,8 @@ export default function EstimatePage() {
             onChange={(e) => {
               setSelectedModelId(e.target.value);
               const m = popularModels.find((m) => m.id === e.target.value);
-              if (m) setContextLength(m.context_length);
+              // Use practical serving context (4096), not model max (can be 128K+)
+              if (m) setContextLength(Math.min(m.context_length, 4096));
             }}
           >
             <option value="">-- Choose a model --</option>
@@ -246,13 +251,22 @@ export default function EstimatePage() {
             </select>
           </div>
           <div>
-            <label className="label">Context Length</label>
+            <label className="label">Serving Context Length</label>
             <input
               className="input"
               type="number"
               value={contextLength}
               onChange={(e) => setContextLength(Number(e.target.value))}
             />
+            {selectedModelId && selectedModelId !== "__custom" && (() => {
+              const m = popularModels.find((m) => m.id === selectedModelId);
+              return m && m.context_length > contextLength ? (
+                <p className="mt-1 text-xs text-gray-500">
+                  Model supports up to {m.context_length.toLocaleString()} tokens.
+                  Higher context = more VRAM/cost.
+                </p>
+              ) : null;
+            })()}
           </div>
         </div>
 
@@ -295,9 +309,29 @@ export default function EstimatePage() {
             <input className="input" type="number" step="0.1" value={qps} onChange={(e) => setQps(Number(e.target.value))} />
           </div>
           <div>
-            <label className="label">Avg Tokens/Request</label>
+            <label className="label">Avg Tokens/Request (self-hosted)</label>
             <input className="input" type="number" value={tokensPerReq} onChange={(e) => setTokensPerReq(Number(e.target.value))} />
           </div>
+        </div>
+
+        <div className="rounded-lg border border-gray-700 bg-gray-800/50 p-3 space-y-3">
+          <p className="text-xs text-gray-400">
+            API comparison tokens — set separately for accurate cost comparison.
+            Input tokens = your prompt, Output tokens = model response.
+          </p>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="label">Avg Input Tokens (prompt)</label>
+              <input className="input" type="number" value={inputTokens} onChange={(e) => setInputTokens(Number(e.target.value))} />
+            </div>
+            <div>
+              <label className="label">Avg Output Tokens (response)</label>
+              <input className="input" type="number" value={outputTokens} onChange={(e) => setOutputTokens(Number(e.target.value))} />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="label">Hours/Day Active</label>
             <input className="input" type="number" min={1} max={24} value={hoursPerDay} onChange={(e) => setHoursPerDay(Number(e.target.value))} />
