@@ -1,12 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import type { PopularModel, CostEstimate, APIProviderComparison, PricingStatus } from "@/types";
 import * as api from "@/lib/api";
 import { CostBreakdownCard } from "@/components/CostBreakdown";
 import { APIProviderComparisonCard } from "@/components/APIProviderComparison";
 import { OptimizationPanel } from "@/components/OptimizationPanel";
+
+export default function EstimatePage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-gray-400">Loading...</div>}>
+      <EstimatePageInner />
+    </Suspense>
+  );
+}
 
 const PRECISIONS = [
   { value: "fp16", label: "FP16" },
@@ -16,7 +24,7 @@ const PRECISIONS = [
   { value: "fp32", label: "FP32" },
 ];
 
-export default function EstimatePage() {
+function EstimatePageInner() {
   const searchParams = useSearchParams();
   const [popularModels, setPopularModels] = useState<PopularModel[]>([]);
   const [selectedModelId, setSelectedModelId] = useState("");

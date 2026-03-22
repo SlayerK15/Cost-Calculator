@@ -12,7 +12,22 @@ import {
 } from "@/lib/api";
 import type { CloudCredential } from "@/types";
 
-const PROVIDERS = [
+interface CredentialField {
+  key: string;
+  label: string;
+  placeholder: string;
+  secret?: boolean;
+  multiline?: boolean;
+}
+
+interface ProviderDef {
+  id: string;
+  name: string;
+  icon: string;
+  fields: CredentialField[];
+}
+
+const PROVIDERS: ProviderDef[] = [
   {
     id: "aws",
     name: "Amazon Web Services",
