@@ -1,0 +1,47 @@
+# Staging override — use with:
+#   docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --build
+#
+# Or simply use the deploy script:
+#   ./deploy-staging.sh ssh user@your-vm-ip
+#
+# Differences from base:
+#   - Postgres/Redis not exposed externally
+#   - Resource limits to keep staging costs low
+
+services:
+  postgres:
+    ports: []
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+
+  redis:
+    ports: []
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.25"
+
+  backend:
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+
+  frontend:
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+
+  n8n:
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
