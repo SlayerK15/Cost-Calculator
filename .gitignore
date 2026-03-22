@@ -23,7 +23,26 @@ Thumbs.db
 
 # Environment
 .env
-.env.local
+.env.*
+!.env.example
+
+# Secrets and credentials — NEVER commit
+*.pem
+*.key
+*.p12
+*.jks
+*.pfx
+*.crt
+credentials*.json
+service-account*.json
+secrets/
+.aws/
+.docker/config.json
+
+# Database files
+*.sql
+*.sqlite
+*.db
 
 # Logs
 *.log

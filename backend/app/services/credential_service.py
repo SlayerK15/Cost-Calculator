@@ -1,14 +1,31 @@
 """Service for encrypting, decrypting, and validating cloud credentials."""
 
 import json
-import os
+import logging
+import warnings
 from cryptography.fernet import Fernet
+from app.core.config import get_settings
 
-# In production, load from env / secrets manager
-_ENCRYPTION_KEY = os.getenv(
-    "CREDENTIAL_ENCRYPTION_KEY",
-    Fernet.generate_key().decode(),  # fallback for dev
-)
+logger = logging.getLogger(__name__)
+
+_settings = get_settings()
+_ENCRYPTION_KEY = _settings.CREDENTIAL_ENCRYPTION_KEY
+
+if not _ENCRYPTION_KEY:
+    if _settings.DEBUG:
+        # Generate a stable dev key and warn
+        _ENCRYPTION_KEY = Fernet.generate_key().decode()
+        warnings.warn(
+            "CREDENTIAL_ENCRYPTION_KEY not set — using ephemeral key. "
+            "Encrypted credentials will be lost on restart.",
+            stacklevel=2,
+        )
+    else:
+        raise RuntimeError(
+            "CREDENTIAL_ENCRYPTION_KEY must be set in production. "
+            "Generate one with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
+        )
+
 _fernet = Fernet(_ENCRYPTION_KEY.encode() if isinstance(_ENCRYPTION_KEY, str) else _ENCRYPTION_KEY)
 
 

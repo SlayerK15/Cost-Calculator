@@ -1,0 +1,194 @@
+# ============================================================
+# Network Policies — zero-trust pod-to-pod communication.
+# Only explicitly allowed traffic can flow.
+# ============================================================
+
+# Default deny all ingress and egress in the namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: llm-platform
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+---
+# Allow DNS resolution for all pods (required for service discovery)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: llm-platform
+spec:
+  podSelector: {}
+  policyTypes: ["Egress"]
+  egress:
+    - to: []
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# Backend: ingress from frontend, n8n, and ingress controller
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-policy
+  namespace: llm-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: frontend
+        - podSelector:
+            matchLabels:
+              app: n8n
+        # Allow ingress controller
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 8000
+  egress:
+    # → PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - port: 5432
+    # → Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - port: 6379
+    # → n8n (webhook triggers)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: n8n
+      ports:
+        - port: 5678
+    # → External HTTPS (Stripe, HuggingFace, OpenAI, Anthropic)
+    - to: []
+      ports:
+        - port: 443
+          protocol: TCP
+---
+# Frontend: ingress from ingress controller only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-policy
+  namespace: llm-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 3000
+  egress:
+    # → Backend API
+    - to:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - port: 8000
+---
+# PostgreSQL: ingress from backend only (and backup cronjob)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-policy
+  namespace: llm-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - port: 5432
+    # Allow backup cronjob pods
+    - from:
+        - podSelector:
+            matchLabels:
+              job-name: postgres-backup
+      ports:
+        - port: 5432
+  egress: []   # Postgres needs no outbound
+---
+# Redis: ingress from backend only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-policy
+  namespace: llm-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - port: 6379
+  egress: []   # Redis needs no outbound
+---
+# n8n: ingress from backend (callbacks), egress to backend + external
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: n8n-policy
+  namespace: llm-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: n8n
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - port: 5678
+  egress:
+    # → Backend (webhook callbacks)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - port: 8000
+    # → External HTTPS (web scraping, Ollama, DuckDuckGo)
+    - to: []
+      ports:
+        - port: 443
+          protocol: TCP
+        - port: 80
+          protocol: TCP
+        - port: 11434        # Ollama API
+          protocol: TCP

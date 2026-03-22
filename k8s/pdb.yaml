@@ -1,0 +1,34 @@
+# PodDisruptionBudgets — guarantee minimum availability during
+# voluntary disruptions (node drains, rolling updates, cluster upgrades).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backend-pdb
+  namespace: llm-platform
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: backend
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-pdb
+  namespace: llm-platform
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: frontend
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: postgres-pdb
+  namespace: llm-platform
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: postgres

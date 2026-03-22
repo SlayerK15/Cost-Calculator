@@ -1,0 +1,138 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-svc
+  namespace: llm-platform
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+  clusterIP: None  # headless for StatefulSet
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: llm-platform
+spec:
+  serviceName: postgres-svc
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999        # postgres uid in alpine image
+        fsGroup: 999
+      initContainers:
+        # Create a dedicated app user (not superuser) on first boot.
+        # The init script only runs when the data directory is empty.
+        - name: init-appuser
+          image: postgres:16-alpine
+          command:
+            - sh
+            - -c
+            - |
+              cat > /docker-entrypoint-initdb.d/01-create-appuser.sql <<'SQL'
+              -- Create a restricted application user (not superuser)
+              DO $$
+              BEGIN
+                IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'llmapp') THEN
+                  CREATE ROLE llmapp WITH LOGIN PASSWORD current_setting('app.llmapp_password');
+                END IF;
+              END
+              $$;
+              CREATE DATABASE llmplatform OWNER llmapp;
+              GRANT ALL PRIVILEGES ON DATABASE llmplatform TO llmapp;
+              -- Restrict the default postgres superuser to local connections only
+              ALTER ROLE postgres SET log_statement = 'all';
+              SQL
+              echo "Init script written."
+          volumeMounts:
+            - name: initdb
+              mountPath: /docker-entrypoint-initdb.d
+          securityContext:
+            allowPrivilegeEscalation: false
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: llmplatform
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: llm-platform-secrets
+                  key: POSTGRES_PASSWORD
+            # pg_hba.conf hardening: reject plaintext, require scram-sha-256
+            - name: POSTGRES_INITDB_ARGS
+              value: "--auth-host=scram-sha-256 --auth-local=scram-sha-256"
+            - name: POSTGRES_HOST_AUTH_METHOD
+              value: "scram-sha-256"
+          args:
+            # Additional hardening flags
+            - -c
+            - ssl=off
+            - -c
+            - log_connections=on
+            - -c
+            - log_disconnections=on
+            - -c
+            - log_statement=ddl
+            - -c
+            - password_encryption=scram-sha-256
+            - -c
+            - shared_buffers=256MB
+            - -c
+            - max_connections=100
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+              subPath: pgdata        # Avoid lost+found issues
+            - name: initdb
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: initdb
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: pgdata
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi

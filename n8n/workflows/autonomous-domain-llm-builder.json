@@ -1,0 +1,1085 @@
+{
+  "name": "Autonomous Domain LLM Builder (Search -> Raw Data -> Clean -> Chunk -> Train -> Ollama)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "autonomous-domain-llm-builder",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        220,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst body = ($json && typeof $json.body === 'object' && $json.body !== null) ? $json.body : ($json || {});\nfunction toArray(value) {\n  if (Array.isArray(value)) return value.map(v => String(v).trim()).filter(Boolean);\n  if (typeof value === 'string') return value.split(/[\\n,]/).map(v => v.trim()).filter(Boolean);\n  return [];\n}\nconst domain = String(body.domain || body.topic || body.query || 'specialized domain').trim();\nconst use_case = String(body.use_case || body.usecase || ('specialist assistant for ' + domain)).trim();\nconst preferred_base_model = String(body.preferred_base_model || body.base_model || 'qwen2.5:7b').trim().toLowerCase();\nconst hf_base_model = String(body.hf_base_model || '').trim();\nconst python_command = String(body.python_command || 'C:\\\\Users\\\\gathe\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python311\\\\python.exe').trim();\nconst ollama_url = String(body.ollama_url || 'http://localhost:11434').trim().replace(/\\/+$/, '');\nconst output_root = String(body.output_root || 'D:/LLM/output').trim().replace(/\\/+$/, '');\nconst workflow_root = String(body.workflow_root || 'D:/LLM').trim().replace(/\\/+$/, '');\nconst seed_urls = toArray(body.seed_urls);\nconst max_queries = Math.max(2, Math.min(8, Number(body.max_queries || 5)));\nconst results_per_query = Math.max(3, Math.min(10, Number(body.results_per_query || 5)));\nconst max_pages = Math.max(5, Math.min(30, Number(body.max_pages || 12)));\nconst max_words_per_chunk = Math.max(200, Math.min(900, Number(body.max_words_per_chunk || 450)));\nconst overlap_words = Math.max(40, Math.min(200, Number(body.overlap_words || 80)));\nconst max_steps = Math.max(1, Number(body.max_steps || 60));\nconst epochs = Math.max(1, Number(body.epochs || 1));\nconst learning_rate = Number(body.learning_rate || 2e-4);\nconst batch_size = Math.max(1, Number(body.batch_size || 1));\nconst gradient_accumulation_steps = Math.max(1, Number(body.gradient_accumulation_steps || 8));\nconst max_seq_length = Math.max(256, Number(body.max_seq_length || 1024));\nconst timestamp = new Date().toISOString().replace(/[:.]/g, '-');\nconst slug = domain.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'domain-specialist';\nconst custom_model_name = String(body.custom_model_name || (slug + '-specialist')).trim().toLowerCase().replace(/[^a-z0-9._:-]/g, '-');\nreturn [{\n  json: {\n    domain,\n    use_case,\n    preferred_base_model,\n    hf_base_model,\n    python_command,\n    ollama_url,\n    output_root,\n    workflow_root,\n    seed_urls,\n    max_queries,\n    results_per_query,\n    max_pages,\n    max_words_per_chunk,\n    overlap_words,\n    max_steps,\n    epochs,\n    learning_rate,\n    batch_size,\n    gradient_accumulation_steps,\n    max_seq_length,\n    timestamp,\n    slug,\n    custom_model_name,\n    requested_at: new Date().toISOString(),\n  }\n}];\n"
+      },
+      "id": "2",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.ollama_url + \"/api/tags\"}}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "3",
+      "name": "Agent: List Models",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        200
+      ],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst cfg = $item(0).$node['Normalize Input'].json;\nconst installed = Array.isArray(items[0]?.json?.models)\n  ? items[0].json.models.map(m => String(m.name || '').toLowerCase()).filter(Boolean)\n  : [];\nconst knownModels = [\n  { pattern: /qwen2\\.5.*7b/, ollama: 'qwen2.5:7b', hf: 'Qwen/Qwen2.5-7B-Instruct', score: 120, gated: false },\n  { pattern: /qwen2\\.5.*3b/, ollama: 'qwen2.5:3b', hf: 'Qwen/Qwen2.5-3B-Instruct', score: 115, gated: false },\n  { pattern: /mistral.*7b/, ollama: 'mistral:7b', hf: 'mistralai/Mistral-7B-Instruct-v0.3', score: 110, gated: false },\n  { pattern: /gemma.*2b/, ollama: 'gemma2:2b', hf: 'google/gemma-2-2b-it', score: 105, gated: false },\n  { pattern: /phi3\\.5|phi-3\\.5|phi3.*3\\.8b/, ollama: 'phi3.5:3.8b', hf: 'microsoft/Phi-3.5-mini-instruct', score: 100, gated: false },\n  { pattern: /phi3.*mini|phi-3.*mini/, ollama: 'phi3:mini', hf: 'microsoft/Phi-3-mini-4k-instruct', score: 95, gated: false },\n  { pattern: /llama3\\.1.*8b/, ollama: 'llama3.1:8b', hf: 'meta-llama/Llama-3.1-8B-Instruct', score: 80, gated: true },\n];\nfunction lookup(name) {\n  const lower = String(name || '').toLowerCase();\n  return knownModels.find(entry => entry.pattern.test(lower)) || null;\n}\nconst preferredInfo = lookup(cfg.preferred_base_model);\nlet selected = null;\nif (cfg.preferred_base_model) {\n  selected = {\n    ollama: cfg.preferred_base_model,\n    hf: cfg.hf_base_model || (preferredInfo ? preferredInfo.hf : ''),\n    gated: preferredInfo ? preferredInfo.gated : false,\n    score: preferredInfo ? preferredInfo.score + 1000 : 1000,\n  };\n}\nif (!selected || !selected.hf) {\n  for (const name of installed) {\n    const info = lookup(name);\n    if (!info) continue;\n    if (!selected || info.score > selected.score) {\n      selected = {\n        ollama: name,\n        hf: cfg.hf_base_model || info.hf,\n        gated: info.gated,\n        score: info.score,\n      };\n    }\n  }\n}\nif (!selected) {\n  const fallback = preferredInfo || knownModels[0];\n  selected = {\n    ollama: cfg.preferred_base_model || fallback.ollama,\n    hf: cfg.hf_base_model || fallback.hf,\n    gated: fallback.gated,\n    score: fallback.score,\n  };\n}\nconst selectedName = String(selected.ollama || 'qwen2.5:7b').toLowerCase();\nconst shouldPull = installed.includes(selectedName) ? 'false' : 'true';\nreturn [{\n  json: {\n    ...cfg,\n    installed_models: installed,\n    selected_base_model: selectedName,\n    hf_base_model: cfg.hf_base_model || selected.hf || '',\n    should_pull_base: shouldPull,\n    requires_hf_auth: selected.gated ? 'true' : 'false',\n  }\n}];\n"
+      },
+      "id": "4",
+      "name": "Agent: Select Models",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        930,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{$json.should_pull_base}}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5",
+      "name": "Need Base Pull?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1160,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$json.ollama_url + \"/api/pull\"}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"name\": $json.selected_base_model, \"stream\": false } }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "6",
+      "name": "Agent: Pull Base Model",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1390,
+        120
+      ],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nreturn [{ json: { ...$item(0).$node['Agent: Select Models'].json } }];\n"
+      },
+      "id": "7",
+      "name": "Restore Model Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append"
+      },
+      "id": "8",
+      "name": "Merge Model Context",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1830,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$json.ollama_url + \"/api/generate\"}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"model\": $json.selected_base_model, \"prompt\": 'Return only JSON. Create ' + $json.max_queries + ' diverse web search queries to collect authoritative training material for the domain \"' + $json.domain + '\" and use case \"' + $json.use_case + '\". Prefer documentation, standards, tutorials, papers, regulations, implementation guides, and trusted practitioner write-ups. JSON schema: {\"queries\":[\"...\"],\"focus\":[\"...\"],\"avoid\":[\"...\"]}', \"stream\": false, \"format\": \"json\", \"options\": { \"temperature\": 0.2 } } }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "9",
+      "name": "Agent: Search Planner",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2060,
+        200
+      ],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst cfg = $item(0).$node['Merge Model Context'].json;\nconst raw = items[0]?.json?.response || '';\nlet parsed = {};\ntry {\n  parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;\n} catch (error) {\n  parsed = {};\n}\nconst queries = [];\nconst seen = new Set();\nfunction pushQuery(value) {\n  const query = String(value || '').replace(/\\s+/g, ' ').trim();\n  if (!query) return;\n  const key = query.toLowerCase();\n  if (seen.has(key)) return;\n  seen.add(key);\n  queries.push(query);\n}\nfor (const query of Array.isArray(parsed.queries) ? parsed.queries : []) {\n  pushQuery(query);\n}\npushQuery(cfg.domain + ' documentation');\npushQuery(cfg.domain + ' best practices');\npushQuery(cfg.domain + ' tutorial');\npushQuery(cfg.domain + ' standards guide');\npushQuery(cfg.domain + ' implementation guide');\npushQuery(cfg.domain + ' ' + cfg.use_case);\nreturn queries.slice(0, cfg.max_queries).map((query, index) => ({\n  json: {\n    query,\n    query_index: index,\n    results_per_query: cfg.results_per_query,\n  }\n}));\n"
+      },
+      "id": "10",
+      "name": "Parse Search Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2290,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{'https://html.duckduckgo.com/html/?q=' + encodeURIComponent($json.query)}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "n8n-domain-llm-builder"
+            },
+            {
+              "name": "Accept-Language",
+              "value": "en-US,en;q=0.9"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "responseFormat": "string"
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "11",
+      "name": "Search Web",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2520,
+        200
+      ],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nfunction decodeHtml(value) {\n  return String(value || '')\n    .replace(/&amp;/gi, '&')\n    .replace(/&quot;/gi, '\"')\n    .replace(/&#39;/gi, \"'\")\n    .replace(/&lt;/gi, '<')\n    .replace(/&gt;/gi, '>');\n}\nfunction stripTags(value) {\n  return decodeHtml(String(value || '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim());\n}\nfunction unwrapUrl(value) {\n  const href = String(value || '').replace(/^\\/\\//, 'https://');\n  try {\n    const url = new URL(href, 'https://html.duckduckgo.com');\n    const redirected = url.searchParams.get('uddg');\n    return redirected ? decodeURIComponent(redirected) : url.toString();\n  } catch (error) {\n    return href;\n  }\n}\nconst out = [];\nfor (let i = 0; i < items.length; i += 1) {\n  const html = String(items[i]?.json?.data || items[i]?.json?.body || items[i]?.json || '');\n  const query = $item(i).$node['Parse Search Plan'].json.query;\n  const limit = Number($item(i).$node['Parse Search Plan'].json.results_per_query || 5);\n  const matches = [...html.matchAll(/<a[^>]*class=\"[^\"]*result__a[^\"]*\"[^>]*href=\"([^\"]+)\"[^>]*>([\\s\\S]*?)<\\/a>/gi)];\n  for (let rank = 0; rank < Math.min(matches.length, limit); rank += 1) {\n    const match = matches[rank];\n    const url = unwrapUrl(decodeHtml(match[1]));\n    if (!/^https?:\\/\\//i.test(url)) continue;\n    out.push({\n      json: {\n        query,\n        rank: rank + 1,\n        url,\n        title: stripTags(match[2]),\n      }\n    });\n  }\n}\nreturn out;\n"
+      },
+      "id": "12",
+      "name": "Extract Search Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2750,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst cfg = $item(0).$node['Merge Model Context'].json;\nconst out = [];\nconst seen = new Set();\nfunction shouldSkip(url) {\n  return /\\.(pdf|doc|docx|ppt|pptx|xls|xlsx|zip)$/i.test(url)\n    || /youtube\\.com|youtu\\.be|twitter\\.com|x\\.com|facebook\\.com|instagram\\.com|linkedin\\.com/i.test(url);\n}\nfunction addUrl(url, title, query, rank, sourceType) {\n  const cleanUrl = String(url || '').trim();\n  if (!cleanUrl || !/^https?:\\/\\//i.test(cleanUrl) || shouldSkip(cleanUrl)) return;\n  const key = cleanUrl.toLowerCase();\n  if (seen.has(key)) return;\n  seen.add(key);\n  out.push({\n    json: {\n      url: cleanUrl,\n      title: String(title || '').trim() || cleanUrl,\n      query: String(query || '').trim(),\n      rank: Number(rank || 0),\n      source_type: sourceType,\n    }\n  });\n}\nfor (const url of cfg.seed_urls || []) {\n  addUrl(url, 'User Seed URL', 'seed', 0, 'seed');\n}\nfor (const item of items) {\n  addUrl(item.json.url, item.json.title, item.json.query, item.json.rank, 'search');\n  if (out.length >= cfg.max_pages) break;\n}\nreturn out.slice(0, cfg.max_pages);\n"
+      },
+      "id": "13",
+      "name": "Consolidate Candidate URLs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2980,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.url}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "n8n-domain-llm-builder"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "responseFormat": "string"
+          },
+          "timeout": 45000
+        }
+      },
+      "id": "14",
+      "name": "Fetch Web Pages",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3210,
+        200
+      ],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nfunction decodeHtml(value) {\n  return String(value || '')\n    .replace(/&nbsp;/gi, ' ')\n    .replace(/&amp;/gi, '&')\n    .replace(/&quot;/gi, '\"')\n    .replace(/&#39;/gi, \"'\")\n    .replace(/&lt;/gi, '<')\n    .replace(/&gt;/gi, '>');\n}\nfunction cleanText(html) {\n  return decodeHtml(\n    String(html || '')\n      .replace(/<script[\\s\\S]*?<\\/script>/gi, ' ')\n      .replace(/<style[\\s\\S]*?<\\/style>/gi, ' ')\n      .replace(/<!--([\\s\\S]*?)-->/g, ' ')\n      .replace(/<noscript[\\s\\S]*?<\\/noscript>/gi, ' ')\n      .replace(/<[^>]+>/g, ' ')\n      .replace(/\\s+/g, ' ')\n      .trim(),\n  );\n}\nconst records = [];\nfor (let i = 0; i < items.length; i += 1) {\n  const raw = items[i]?.json;\n  if (raw?.error) continue;\n  const html = String(raw?.data || raw?.body || raw || '');\n  const source = $item(i).$node['Consolidate Candidate URLs'].json;\n  const titleFromHtml = html.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i)?.[1] || '';\n  const text = cleanText(html);\n  if (text.length < 300) continue;\n  records.push({\n    json: {\n      title: cleanText(titleFromHtml || source.title).slice(0, 300),\n      url: source.url,\n      query: source.query,\n      rank: source.rank,\n      source_type: source.source_type,\n      raw_html: html.slice(0, 200000),\n      extracted_text: text.slice(0, 50000),\n    }\n  });\n}\nreturn records;\n"
+      },
+      "id": "15",
+      "name": "Extract Raw Pages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3440,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst cfg = $item(0).$node['Merge Model Context'].json;\nconst raw_records = items.map(item => item.json);\nconst raw_file = cfg.output_root + '/' + cfg.slug + '_' + cfg.timestamp + '_raw_corpus.json';\nconst payload = {\n  domain: cfg.domain,\n  use_case: cfg.use_case,\n  requested_at: cfg.requested_at,\n  selected_base_model: cfg.selected_base_model,\n  raw_record_count: raw_records.length,\n  raw_records,\n};\nreturn [{\n  json: {\n    domain: cfg.domain,\n    use_case: cfg.use_case,\n    raw_file,\n    raw_record_count: raw_records.length,\n    raw_records,\n  },\n  binary: {\n    raw_corpus: {\n      data: Buffer.from(JSON.stringify(payload, null, 2)).toString('base64'),\n      mimeType: 'application/json',\n      fileName: raw_file.split('/').pop(),\n    },\n  },\n}];\n"
+      },
+      "id": "16",
+      "name": "Build Raw Corpus File",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3670,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst fs = require('fs');\nconst path = require('path');\nconst out = [];\nfor (const item of items) {\n  const filePath = String(item?.json?.raw_file || '').trim();\n  if (!filePath) {\n    throw new Error('Missing file path in json.raw_file');\n  }\n  const binary = item?.binary?.raw_corpus;\n  if (!binary || !binary.data) {\n    throw new Error('Missing binary payload \"raw_corpus\"');\n  }\n  fs.mkdirSync(path.dirname(filePath), { recursive: true });\n  fs.writeFileSync(filePath, Buffer.from(binary.data, 'base64'));\n  out.push(item);\n}\nreturn out;\n"
+      },
+      "id": "17",
+      "name": "Write Raw Corpus",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3900,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst cfg = $item(0).$node['Merge Model Context'].json;\nconst raw_records = Array.isArray(items[0]?.json?.raw_records) ? items[0].json.raw_records : [];\nconst cleaned = [];\nfor (const record of raw_records) {\n  const content = String(record.extracted_text || '').replace(/\\s+/g, ' ').trim();\n  if (content.length < 400) continue;\n  cleaned.push({\n    json: {\n      domain: cfg.domain,\n      use_case: cfg.use_case,\n      title: String(record.title || '').trim() || 'Untitled Source',\n      url: String(record.url || '').trim(),\n      query: String(record.query || '').trim(),\n      source_type: String(record.source_type || 'web'),\n      content: content.slice(0, 30000),\n    }\n  });\n}\nreturn cleaned;\n"
+      },
+      "id": "18",
+      "name": "Clean Records",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4130,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst seen = new Set();\nconst out = [];\nfor (const item of items) {\n  const key = (String(item.json.url || '') + '|' + String(item.json.title || '')).toLowerCase();\n  if (!key || seen.has(key)) continue;\n  seen.add(key);\n  out.push(item);\n}\nreturn out;\n"
+      },
+      "id": "19",
+      "name": "Deduplicate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4360,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst cfg = $item(0).$node['Normalize Input'].json;\nconst out = [];\nfor (const item of items) {\n  const record = item.json;\n  const words = String(record.content || '').split(/\\s+/).filter(Boolean);\n  if (!words.length) continue;\n  const size = cfg.max_words_per_chunk;\n  const overlap = Math.min(cfg.overlap_words, Math.max(0, size - 50));\n  const stride = Math.max(50, size - overlap);\n  const total = Math.max(1, Math.ceil(words.length / stride));\n  let cursor = 0;\n  let index = 0;\n  while (cursor < words.length) {\n    const chunkWords = words.slice(cursor, cursor + size);\n    out.push({\n      json: {\n        domain: record.domain,\n        use_case: record.use_case,\n        title: record.title,\n        url: record.url,\n        query: record.query,\n        source_type: record.source_type,\n        content: chunkWords.join(' '),\n        chunk_index: index,\n        total_chunks: total,\n      }\n    });\n    index += 1;\n    cursor += stride;\n  }\n}\nreturn out;\n"
+      },
+      "id": "20",
+      "name": "Chunk Records",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4590,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst cfg = $item(0).$node['Normalize Input'].json;\nconst rawInfo = $item(0).$node['Build Raw Corpus File'].json;\nconst records = items.map(item => item.json);\nconst clean_dataset_file = cfg.output_root + '/' + cfg.slug + '_' + cfg.timestamp + '_clean_dataset.json';\nconst training_file = cfg.output_root + '/' + cfg.slug + '_' + cfg.timestamp + '_train.jsonl';\nconst datasetPayload = records.map(record => ({\n  domain: record.domain,\n  use_case: record.use_case,\n  title: record.title,\n  url: record.url,\n  query: record.query,\n  source_type: record.source_type,\n  chunk_index: record.chunk_index,\n  total_chunks: record.total_chunks,\n  content: record.content,\n}));\nconst jsonl = datasetPayload.map(record => JSON.stringify({\n  text: [\n    'Domain: ' + record.domain,\n    'Use case: ' + record.use_case,\n    'Source title: ' + record.title,\n    'Source URL: ' + record.url,\n    'Search query: ' + record.query,\n    'Knowledge chunk:',\n    record.content,\n  ].join('\\n'),\n  metadata: {\n    title: record.title,\n    url: record.url,\n    query: record.query,\n    source_type: record.source_type,\n    chunk_index: record.chunk_index,\n    total_chunks: record.total_chunks,\n  },\n})).join('\\n');\nreturn [{\n  json: {\n    domain: cfg.domain,\n    use_case: cfg.use_case,\n    slug: cfg.slug,\n    timestamp: cfg.timestamp,\n    custom_model_name: cfg.custom_model_name,\n    clean_dataset_file,\n    training_file,\n    raw_file: rawInfo.raw_file,\n    raw_record_count: rawInfo.raw_record_count,\n    chunk_count: datasetPayload.length,\n  },\n  binary: {\n    clean_dataset: {\n      data: Buffer.from(JSON.stringify(datasetPayload, null, 2)).toString('base64'),\n      mimeType: 'application/json',\n      fileName: clean_dataset_file.split('/').pop(),\n    },\n    training_jsonl: {\n      data: Buffer.from(jsonl).toString('base64'),\n      mimeType: 'application/jsonl',\n      fileName: training_file.split('/').pop(),\n    },\n  },\n}];\n"
+      },
+      "id": "21",
+      "name": "Build Training Files",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4820,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst fs = require('fs');\nconst path = require('path');\nconst out = [];\nfor (const item of items) {\n  const filePath = String(item?.json?.clean_dataset_file || '').trim();\n  if (!filePath) {\n    throw new Error('Missing file path in json.clean_dataset_file');\n  }\n  const binary = item?.binary?.clean_dataset;\n  if (!binary || !binary.data) {\n    throw new Error('Missing binary payload \"clean_dataset\"');\n  }\n  fs.mkdirSync(path.dirname(filePath), { recursive: true });\n  fs.writeFileSync(filePath, Buffer.from(binary.data, 'base64'));\n  out.push(item);\n}\nreturn out;\n"
+      },
+      "id": "22",
+      "name": "Write Clean Dataset",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5050,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst fs = require('fs');\nconst path = require('path');\nconst out = [];\nfor (const item of items) {\n  const filePath = String(item?.json?.training_file || '').trim();\n  if (!filePath) {\n    throw new Error('Missing file path in json.training_file');\n  }\n  const binary = item?.binary?.training_jsonl;\n  if (!binary || !binary.data) {\n    throw new Error('Missing binary payload \"training_jsonl\"');\n  }\n  fs.mkdirSync(path.dirname(filePath), { recursive: true });\n  fs.writeFileSync(filePath, Buffer.from(binary.data, 'base64'));\n  out.push(item);\n}\nreturn out;\n"
+      },
+      "id": "23",
+      "name": "Write Training JSONL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5280,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$node[\"Merge Model Context\"].json.ollama_url + \"/api/generate\"}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"model\": $node[\"Merge Model Context\"].json.selected_base_model, \"prompt\": 'Return only JSON with a single key called system_prompt. Draft a concise system prompt for a locally fine-tuned assistant specialized in the domain \"' + $node[\"Merge Model Context\"].json.domain + '\" and use case \"' + $node[\"Merge Model Context\"].json.use_case + '\". Emphasize grounded answers, practical guidance, and honest uncertainty.', \"stream\": false, \"format\": \"json\", \"options\": { \"temperature\": 0.2 } } }}",
+        "options": {
+          "timeout": 45000
+        }
+      },
+      "id": "24",
+      "name": "Agent: Draft System Prompt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5510,
+        200
+      ],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nfunction safeParse(value) {\n  try {\n    return typeof value === 'string' ? JSON.parse(value) : value;\n  } catch (error) {\n    return {};\n  }\n}\nfunction quote(value) {\n  return '\"' + String(value || '').replace(/\"/g, '\\\\\"') + '\"';\n}\nconst files = $item(0).$node['Write Training JSONL'].json;\nconst model = $item(0).$node['Merge Model Context'].json;\nconst promptResult = safeParse(items[0]?.json?.response || '');\nconst defaultPrompt = 'You are a specialized assistant for ' + model.domain + '. Support the user with ' + model.use_case + '. Ground answers in the local training corpus, avoid fabricating facts, and say when the evidence is incomplete.';\nconst system_prompt = String(promptResult.system_prompt || defaultPrompt).replace(/\\s+/g, ' ').trim();\nconst adapter_dir = model.output_root + '/' + model.slug + '_' + model.timestamp + '_adapter';\nconst modelfile_path = model.output_root + '/' + model.slug + '_' + model.timestamp + '.Modelfile';\nconst train_script = model.workflow_root + '/train_domain_lora.py';\nconst requirements_file = model.workflow_root + '/requirements-domain-llm.txt';\nconst env_check_command = quote(model.python_command) + ' ' + quote(train_script) + ' --check-env';\nconst train_command = [\n  quote(model.python_command),\n  quote(train_script),\n  '--dataset', quote(files.training_file),\n  '--base-model', quote(model.hf_base_model),\n  '--ollama-base', quote(model.selected_base_model),\n  '--output-dir', quote(adapter_dir),\n  '--domain', quote(model.domain),\n  '--use-case', quote(model.use_case),\n  '--epochs', String(model.epochs),\n  '--max-steps', String(model.max_steps),\n  '--learning-rate', String(model.learning_rate),\n  '--batch-size', String(model.batch_size),\n  '--gradient-accumulation-steps', String(model.gradient_accumulation_steps),\n  '--max-seq-length', String(model.max_seq_length),\n].join(' ');\nconst ollama_create_command = 'ollama create ' + quote(model.custom_model_name) + ' -f ' + quote(modelfile_path);\nreturn [{\n  json: {\n    domain: model.domain,\n    use_case: model.use_case,\n    selected_base_model: model.selected_base_model,\n    hf_base_model: model.hf_base_model,\n    requires_hf_auth: model.requires_hf_auth,\n    custom_model_name: model.custom_model_name,\n    output_root: model.output_root,\n    workflow_root: model.workflow_root,\n    python_command: model.python_command,\n    requirements_file,\n    raw_file: files.raw_file,\n    raw_record_count: files.raw_record_count,\n    clean_dataset_file: files.clean_dataset_file,\n    training_file: files.training_file,\n    chunk_count: files.chunk_count,\n    adapter_dir,\n    modelfile_path,\n    system_prompt,\n    env_check_command,\n    train_command,\n    ollama_create_command,\n  }\n}];\n"
+      },
+      "id": "25",
+      "name": "Prepare Training Job",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5740,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst { spawnSync } = require('child_process');\nconst command = String($json.env_check_command || '').trim();\nconst result = spawnSync(command, {\n  encoding: 'utf8',\n  shell: true,\n  maxBuffer: 1024 * 1024 * 100,\n});\nconst stdout = String(result.stdout || '');\nconst stderr = String(result.stderr || '');\nconst exitCode = Number(result.status ?? 0);\nconst errorMessage = result.error\n  ? String(result.error.message || result.error)\n  : exitCode !== 0\n    ? String(stderr || stdout || ('Command failed with exit code ' + exitCode))\n    : '';\nreturn [{\n  json: {\n    stdout,\n    stderr,\n    exitCode,\n    ...(errorMessage ? { error: errorMessage } : {}),\n  }\n}];\n"
+      },
+      "id": "26",
+      "name": "Preflight Trainer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5970,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nfunction safeParse(value) {\n  try {\n    return typeof value === 'string' ? JSON.parse(value) : value;\n  } catch (error) {\n    return {};\n  }\n}\nconst ctx = $item(0).$node['Prepare Training Job'].json;\nconst result = items[0]?.json || {};\nconst parsed = safeParse(result.stdout || '');\nconst preflight_ok = (!result.error && parsed.status === 'ready' && !!ctx.hf_base_model) ? 'true' : 'false';\nconst missing_packages = Array.isArray(parsed.missing_packages) ? parsed.missing_packages : [];\nlet preflight_error = '';\nif (!ctx.hf_base_model) {\n  preflight_error = 'No Hugging Face base model mapping was found for ' + ctx.selected_base_model + '. Provide hf_base_model in the webhook payload.';\n} else if (result.error) {\n  preflight_error = String(result.error);\n} else if (parsed.status !== 'ready') {\n  preflight_error = String(parsed.message || 'Training environment is not ready.');\n}\nreturn [{\n  json: {\n    ...ctx,\n    preflight_ok,\n    missing_packages,\n    preflight_error,\n    preflight_stdout: String(result.stdout || ''),\n    preflight_stderr: String(result.stderr || ''),\n    install_hint: ctx.python_command + ' -m pip install -r \"' + ctx.requirements_file + '\"',\n  }\n}];\n"
+      },
+      "id": "27",
+      "name": "Handle Preflight",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6200,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{$json.preflight_ok}}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "28",
+      "name": "Environment Ready?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        6430,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst { spawnSync } = require('child_process');\nconst command = String($json.train_command || '').trim();\nconst result = spawnSync(command, {\n  encoding: 'utf8',\n  shell: true,\n  maxBuffer: 1024 * 1024 * 100,\n});\nconst stdout = String(result.stdout || '');\nconst stderr = String(result.stderr || '');\nconst exitCode = Number(result.status ?? 0);\nconst errorMessage = result.error\n  ? String(result.error.message || result.error)\n  : exitCode !== 0\n    ? String(stderr || stdout || ('Command failed with exit code ' + exitCode))\n    : '';\nreturn [{\n  json: {\n    stdout,\n    stderr,\n    exitCode,\n    ...(errorMessage ? { error: errorMessage } : {}),\n  }\n}];\n"
+      },
+      "id": "29",
+      "name": "Run Fine-Tune",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6660,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nfunction parseLastJson(stdout) {\n  const lines = String(stdout || '').split(/\\r?\\n/).map(line => line.trim()).filter(Boolean).reverse();\n  for (const line of lines) {\n    if (!(line.startsWith('{') && line.endsWith('}'))) continue;\n    try {\n      return JSON.parse(line);\n    } catch (error) {\n      continue;\n    }\n  }\n  return {};\n}\nconst ctx = $item(0).$node['Handle Preflight'].json;\nconst result = items[0]?.json || {};\nconst parsed = parseLastJson(result.stdout || '');\nconst training_ok = (!result.error && parsed.status === 'success') ? 'true' : 'false';\nreturn [{\n  json: {\n    ...ctx,\n    training_ok,\n    training_error: String(result.error || parsed.message || ''),\n    training_stdout: String(result.stdout || ''),\n    training_stderr: String(result.stderr || ''),\n    adapter_dir: String(parsed.adapter_dir || ctx.adapter_dir),\n    training_manifest: String(parsed.training_manifest || (ctx.adapter_dir + '/training_manifest.json')),\n    trained_examples: Number(parsed.train_examples || 0),\n    target_modules: Array.isArray(parsed.target_modules) ? parsed.target_modules : [],\n  }\n}];\n"
+      },
+      "id": "30",
+      "name": "Handle Training Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6890,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{$json.training_ok}}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "31",
+      "name": "Training Successful?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        7120,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst ctx = items[0].json;\nconst content = [\n  'FROM ' + ctx.selected_base_model,\n  'ADAPTER ' + ctx.adapter_dir.replace(/\\\\/g, '/'),\n  'SYSTEM \"\"\"',\n  ctx.system_prompt,\n  '\"\"\"',\n  'PARAMETER temperature 0.2',\n  'PARAMETER num_ctx 8192',\n  'MESSAGE user Help me with ' + ctx.domain + ' for ' + ctx.use_case + '.',\n  'MESSAGE assistant I will answer as a domain specialist grounded in the local fine-tuning corpus and clearly say when I am uncertain.',\n].join('\\n');\nreturn [{\n  json: {\n    ...ctx,\n  },\n  binary: {\n    modelfile: {\n      data: Buffer.from(content).toString('base64'),\n      mimeType: 'text/plain',\n      fileName: ctx.modelfile_path.split('/').pop(),\n    },\n  },\n}];\n"
+      },
+      "id": "32",
+      "name": "Build Modelfile",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7350,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst fs = require('fs');\nconst path = require('path');\nconst out = [];\nfor (const item of items) {\n  const filePath = String(item?.json?.modelfile_path || '').trim();\n  if (!filePath) {\n    throw new Error('Missing file path in json.modelfile_path');\n  }\n  const binary = item?.binary?.modelfile;\n  if (!binary || !binary.data) {\n    throw new Error('Missing binary payload \"modelfile\"');\n  }\n  fs.mkdirSync(path.dirname(filePath), { recursive: true });\n  fs.writeFileSync(filePath, Buffer.from(binary.data, 'base64'));\n  out.push(item);\n}\nreturn out;\n"
+      },
+      "id": "33",
+      "name": "Write Modelfile",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7580,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst { spawnSync } = require('child_process');\nconst command = String($json.ollama_create_command || '').trim();\nconst result = spawnSync(command, {\n  encoding: 'utf8',\n  shell: true,\n  maxBuffer: 1024 * 1024 * 100,\n});\nconst stdout = String(result.stdout || '');\nconst stderr = String(result.stderr || '');\nconst exitCode = Number(result.status ?? 0);\nconst errorMessage = result.error\n  ? String(result.error.message || result.error)\n  : exitCode !== 0\n    ? String(stderr || stdout || ('Command failed with exit code ' + exitCode))\n    : '';\nreturn [{\n  json: {\n    stdout,\n    stderr,\n    exitCode,\n    ...(errorMessage ? { error: errorMessage } : {}),\n  }\n}];\n"
+      },
+      "id": "34",
+      "name": "Register Ollama Model",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7810,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst ctx = $item(0).$node['Handle Training Result'].json;\nconst register = items[0]?.json || {};\nconst created = !register.error;\nconst notes = [];\nif (ctx.requires_hf_auth === 'true') {\n  notes.push('The selected base model maps to a gated Hugging Face model. Training requires valid access credentials.');\n}\nif (!created) {\n  notes.push('Adapter training completed locally, but Ollama model registration failed. Retry with: ' + ctx.ollama_create_command);\n}\nreturn [{\n  json: {\n    status: created ? 'success' : 'partial_success',\n    domain: ctx.domain,\n    use_case: ctx.use_case,\n    selected_base_model: ctx.selected_base_model,\n    hf_base_model: ctx.hf_base_model,\n    custom_model_name: ctx.custom_model_name,\n    raw_file: ctx.raw_file,\n    clean_dataset_file: ctx.clean_dataset_file,\n    training_file: ctx.training_file,\n    adapter_dir: ctx.adapter_dir,\n    modelfile_path: ctx.modelfile_path,\n    training_manifest: ctx.training_manifest,\n    raw_record_count: ctx.raw_record_count,\n    chunk_count: ctx.chunk_count,\n    trained_examples: ctx.trained_examples,\n    target_modules: ctx.target_modules,\n    model_registered: created,\n    ollama_stdout: String(register.stdout || ''),\n    ollama_stderr: String(register.stderr || ''),\n    notes,\n  }\n}];\n"
+      },
+      "id": "35",
+      "name": "Build Final Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8040,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nfunction safeNode(name) {\n  try {\n    return $item(0).$node[name].json;\n  } catch (error) {\n    return {};\n  }\n}\nconst prep = safeNode('Prepare Training Job');\nconst preflight = safeNode('Handle Preflight');\nconst training = safeNode('Handle Training Result');\nconst current = items[0]?.json || {};\nconst message = current.preflight_ok === 'false'\n  ? 'Training environment is not ready: ' + String(current.preflight_error || preflight.preflight_error || 'Unknown preflight error.')\n  : 'Fine-tuning failed: ' + String(current.training_error || training.training_error || 'Unknown training error.');\nconst missing_packages = current.missing_packages || preflight.missing_packages || [];\nconst notes = [];\nif (prep.requires_hf_auth === 'true') {\n  notes.push('This workflow selected a gated Hugging Face base model. Authenticate with Hugging Face or choose an open model like qwen2.5 or mistral.');\n}\nreturn [{\n  json: {\n    status: 'error',\n    message,\n    domain: prep.domain,\n    use_case: prep.use_case,\n    selected_base_model: prep.selected_base_model,\n    hf_base_model: prep.hf_base_model,\n    custom_model_name: prep.custom_model_name,\n    raw_file: prep.raw_file,\n    clean_dataset_file: prep.clean_dataset_file,\n    training_file: prep.training_file,\n    adapter_dir: prep.adapter_dir,\n    modelfile_path: prep.modelfile_path,\n    ollama_create_command: prep.ollama_create_command,\n    install_hint: preflight.install_hint || '',\n    missing_packages,\n    preflight_stdout: String(current.preflight_stdout || preflight.preflight_stdout || ''),\n    preflight_stderr: String(current.preflight_stderr || preflight.preflight_stderr || ''),\n    training_stdout: String(current.training_stdout || training.training_stdout || ''),\n    training_stderr: String(current.training_stderr || training.training_stderr || ''),\n    notes,\n  }\n}];\n"
+      },
+      "id": "36",
+      "name": "Build Error Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7350,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "37",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        8270,
+        200
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Agent: List Models",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent: List Models": {
+      "main": [
+        [
+          {
+            "node": "Agent: Select Models",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent: Select Models": {
+      "main": [
+        [
+          {
+            "node": "Need Base Pull?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Need Base Pull?": {
+      "main": [
+        [
+          {
+            "node": "Agent: Pull Base Model",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge Model Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent: Pull Base Model": {
+      "main": [
+        [
+          {
+            "node": "Restore Model Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore Model Context": {
+      "main": [
+        [
+          {
+            "node": "Merge Model Context",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Model Context": {
+      "main": [
+        [
+          {
+            "node": "Agent: Search Planner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent: Search Planner": {
+      "main": [
+        [
+          {
+            "node": "Parse Search Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Search Plan": {
+      "main": [
+        [
+          {
+            "node": "Search Web",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Web": {
+      "main": [
+        [
+          {
+            "node": "Extract Search Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Search Results": {
+      "main": [
+        [
+          {
+            "node": "Consolidate Candidate URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consolidate Candidate URLs": {
+      "main": [
+        [
+          {
+            "node": "Fetch Web Pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Web Pages": {
+      "main": [
+        [
+          {
+            "node": "Extract Raw Pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Raw Pages": {
+      "main": [
+        [
+          {
+            "node": "Build Raw Corpus File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Raw Corpus File": {
+      "main": [
+        [
+          {
+            "node": "Write Raw Corpus",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Raw Corpus": {
+      "main": [
+        [
+          {
+            "node": "Clean Records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean Records": {
+      "main": [
+        [
+          {
+            "node": "Deduplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deduplicate": {
+      "main": [
+        [
+          {
+            "node": "Chunk Records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chunk Records": {
+      "main": [
+        [
+          {
+            "node": "Build Training Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Training Files": {
+      "main": [
+        [
+          {
+            "node": "Write Clean Dataset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Clean Dataset": {
+      "main": [
+        [
+          {
+            "node": "Write Training JSONL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Training JSONL": {
+      "main": [
+        [
+          {
+            "node": "Agent: Draft System Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent: Draft System Prompt": {
+      "main": [
+        [
+          {
+            "node": "Prepare Training Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Training Job": {
+      "main": [
+        [
+          {
+            "node": "Preflight Trainer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preflight Trainer": {
+      "main": [
+        [
+          {
+            "node": "Handle Preflight",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Preflight": {
+      "main": [
+        [
+          {
+            "node": "Environment Ready?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Environment Ready?": {
+      "main": [
+        [
+          {
+            "node": "Run Fine-Tune",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Fine-Tune": {
+      "main": [
+        [
+          {
+            "node": "Handle Training Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Training Result": {
+      "main": [
+        [
+          {
+            "node": "Training Successful?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Training Successful?": {
+      "main": [
+        [
+          {
+            "node": "Build Modelfile",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Modelfile": {
+      "main": [
+        [
+          {
+            "node": "Write Modelfile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Modelfile": {
+      "main": [
+        [
+          {
+            "node": "Register Ollama Model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Register Ollama Model": {
+      "main": [
+        [
+          {
+            "node": "Build Final Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Final Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Error Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "autonomous-domain-llm-builder-v2",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

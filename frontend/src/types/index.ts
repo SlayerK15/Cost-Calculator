@@ -358,3 +358,147 @@ export interface PlaygroundResponse {
     context_length: number;
   };
 }
+
+// ── Phase 6: Comparison & Sharing ──
+
+export interface CompareModelEntry {
+  name: string;
+  parameters_billion: number;
+  precision: string;
+  context_length: number;
+}
+
+export interface ModelComparisonEntry {
+  model_name: string;
+  parameters_billion: number;
+  precision: string;
+  vram_required_gb: number;
+  gpu_type: string;
+  gpu_count: number;
+  instance_type: string;
+  cost_per_hour: number;
+  total_cost_monthly: number;
+  compute_cost_monthly: number;
+  storage_cost_monthly: number;
+  recommendation: string;
+}
+
+export interface CompareModelsResponse {
+  cloud_provider: string;
+  comparisons: ModelComparisonEntry[];
+}
+
+export interface SharedEstimateData {
+  share_token: string;
+  estimate: Record<string, any>;
+  api_comparison: Record<string, any> | null;
+  model_name: string;
+  cloud_provider: string;
+  total_cost_monthly: number;
+  views_count: number;
+  created_at: string;
+}
+
+export interface SavedEstimateItem {
+  id: string;
+  label: string;
+  model_name: string;
+  cloud_provider: string;
+  total_cost_monthly: number;
+  parameters_billion: number | null;
+  created_at: string;
+}
+
+// ── Phase 7: Intelligence ──
+
+export interface RecommendationResult {
+  model_name: string;
+  parameters_billion: number;
+  quality_tier: string;
+  tags: string[];
+  cloud_provider: string;
+  instance_type: string;
+  gpu_type: string;
+  gpu_count: number;
+  vram_required_gb: number;
+  monthly_cost: number;
+  recommendation: string;
+}
+
+export interface RecommendResponse {
+  use_case: string;
+  budget: number;
+  results: RecommendationResult[];
+}
+
+export interface OptimizationSuggestion {
+  type: string;
+  title: string;
+  description: string;
+  current_cost: number;
+  optimized_cost: number;
+  savings_monthly: number;
+  savings_pct: number;
+  tradeoff: string;
+}
+
+export interface OptimizationReport {
+  current_monthly_cost: number;
+  optimizations: OptimizationSuggestion[];
+  total_potential_savings: number;
+  best_optimized_cost: number;
+}
+
+export interface ForecastDay {
+  date: string;
+  projected_cost: number;
+}
+
+export interface ForecastResult {
+  projected_monthly_cost: number;
+  current_monthly_cost: number;
+  change_pct: number;
+  daily_forecast: ForecastDay[];
+  confidence: string;
+}
+
+// ── Infrastructure Agent ──
+
+export interface InfraFileEntry {
+  filename: string;
+  content: string;
+  language: string;
+}
+
+export interface InfraGenerateResponse {
+  deployment_id: string;
+  cloud_provider: string;
+  iac_language: string;
+  region: string;
+  instance_type: string;
+  gpu_type: string;
+  gpu_count: number;
+  estimated_monthly_cost: number;
+  files: InfraFileEntry[];
+  quickstart: string;
+  summary: string;
+}
+
+export interface InfraSearchResult {
+  source: string;
+  title: string;
+  snippet: string;
+  relevance: number;
+}
+
+export interface InfraSearchResponse {
+  query: string;
+  results: InfraSearchResult[];
+}
+
+// ── Phase 8: Agent Chatbot ──
+
+export interface AgentMessage {
+  role: "user" | "assistant";
+  content: string;
+}

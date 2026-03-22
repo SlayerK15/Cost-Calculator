@@ -1,0 +1,57 @@
+# ServiceAccount, Role, and RoleBinding for the backend.
+# The backend pod needs no K8s API access, but having a dedicated
+# ServiceAccount lets us audit and bind policies cleanly.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backend-sa
+  namespace: llm-platform
+  labels:
+    app.kubernetes.io/part-of: llm-platform
+automountServiceAccountToken: false  # No K8s API access needed
+---
+# Minimal role — only allows reading its own namespace configmaps
+# (useful if you later add runtime config reloads).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: backend-role
+  namespace: llm-platform
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backend-rolebinding
+  namespace: llm-platform
+subjects:
+  - kind: ServiceAccount
+    name: backend-sa
+    namespace: llm-platform
+roleRef:
+  kind: Role
+  name: backend-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# Frontend needs no API access at all
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: frontend-sa
+  namespace: llm-platform
+  labels:
+    app.kubernetes.io/part-of: llm-platform
+automountServiceAccountToken: false
+---
+# n8n ServiceAccount — isolated from other workloads
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: n8n-sa
+  namespace: llm-platform
+  labels:
+    app.kubernetes.io/part-of: llm-platform
+automountServiceAccountToken: false

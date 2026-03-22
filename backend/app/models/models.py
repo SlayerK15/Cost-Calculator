@@ -90,6 +90,15 @@ class CredentialStatus(str, enum.Enum):
     EXPIRED = "expired"
 
 
+class WorkflowStatus(str, enum.Enum):
+    PENDING = "pending"
+    SEARCHING = "searching"
+    TRAINING = "training"
+    DEPLOYING = "deploying"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -449,3 +458,72 @@ class CostAlert(Base):
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     managed_deployment = relationship("ManagedDeployment", backref="cost_alerts")
+
+
+# ── Phase 6: Sharing & Saved Estimates ──
+
+
+class SharedEstimate(Base):
+    """Shareable estimate snapshots with unique URL tokens."""
+    __tablename__ = "shared_estimates"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    share_token = Column(String(12), unique=True, nullable=False, index=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=True)
+
+    estimate_snapshot = Column(JSON, nullable=False)
+    api_comparison_snapshot = Column(JSON, nullable=True)
+    model_name = Column(String, nullable=False)
+    cloud_provider = Column(String, nullable=False)
+    total_cost_monthly = Column(Float, nullable=False)
+
+    views_count = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class SavedEstimate(Base):
+    """User-bookmarked cost estimates."""
+    __tablename__ = "saved_estimates"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+
+    label = Column(String, nullable=False)
+    estimate_snapshot = Column(JSON, nullable=False)
+    model_name = Column(String, nullable=False)
+    cloud_provider = Column(String, nullable=False)
+    total_cost_monthly = Column(Float, nullable=False)
+    parameters_billion = Column(Float, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+
+# ── Phase 7: n8n Workflow Runs ──
+
+
+class WorkflowRun(Base):
+    """Tracks autonomous LLM builder workflow runs triggered via n8n."""
+    __tablename__ = "workflow_runs"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    status = Column(SAEnum(WorkflowStatus), default=WorkflowStatus.PENDING)
+
+    # User inputs
+    domain = Column(String, nullable=False)
+    use_case = Column(Text, nullable=False)
+    base_model = Column(String, nullable=True)
+
+    # n8n tracking
+    n8n_execution_id = Column(String, nullable=True)
+
+    # Snapshots
+    config_snapshot = Column(JSON, nullable=True)
+    result_snapshot = Column(JSON, nullable=True)
+    error_message = Column(Text, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    owner = relationship("User", backref="workflow_runs")

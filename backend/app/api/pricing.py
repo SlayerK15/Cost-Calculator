@@ -2,6 +2,7 @@
 Pricing API — webhook endpoints for n8n to push live prices,
 and public endpoints for the frontend to check pricing freshness.
 """
+import hmac
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
@@ -65,7 +66,7 @@ class PricingStatus(BaseModel):
 # ── Webhook Endpoints (n8n pushes prices here) ──
 
 def _verify_webhook(secret: str | None):
-    if secret != WEBHOOK_SECRET:
+    if not secret or not hmac.compare_digest(secret, WEBHOOK_SECRET):
         raise HTTPException(status_code=401, detail="Invalid webhook secret")
 
 

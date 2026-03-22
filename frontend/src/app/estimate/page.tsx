@@ -6,6 +6,7 @@ import type { PopularModel, CostEstimate, APIProviderComparison, PricingStatus }
 import * as api from "@/lib/api";
 import { CostBreakdownCard } from "@/components/CostBreakdown";
 import { APIProviderComparisonCard } from "@/components/APIProviderComparison";
+import { OptimizationPanel } from "@/components/OptimizationPanel";
 
 const PRECISIONS = [
   { value: "fp16", label: "FP16" },
@@ -38,6 +39,9 @@ export default function EstimatePage() {
   const [allEstimates, setAllEstimates] = useState<CostEstimate[]>([]);
   const [apiComparison, setApiComparison] = useState<APIProviderComparison | null>(null);
   const [pricingStatus, setPricingStatus] = useState<PricingStatus | null>(null);
+  const [shareUrl, setShareUrl] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveLabel, setSaveLabel] = useState("");
 
   useEffect(() => {
     loadPopularModels();
@@ -360,6 +364,89 @@ export default function EstimatePage() {
       {estimate && (
         <div className="mt-8">
           <CostBreakdownCard estimate={estimate} />
+
+          {/* Share / Save actions */}
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              className="rounded-lg bg-gray-800 px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 transition"
+              onClick={async () => {
+                try {
+                  const res = await api.createShare({
+                    estimate: estimate as any,
+                    api_comparison: apiComparison as any,
+                    model_name: estimate.model_name,
+                    cloud_provider: estimate.cloud_provider,
+                    total_cost_monthly: estimate.cost_breakdown.total_cost_monthly,
+                  });
+                  setShareUrl(window.location.origin + `/share/${res.share_token}`);
+                } catch {}
+              }}
+            >
+              Share Estimate
+            </button>
+
+            {api.isAuthenticated() && (
+              <div className="flex items-center gap-2">
+                <input
+                  className="rounded-lg bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 outline-none w-40"
+                  placeholder="Label (optional)"
+                  value={saveLabel}
+                  onChange={(e) => setSaveLabel(e.target.value)}
+                />
+                <button
+                  className="rounded-lg bg-gray-800 px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 transition"
+                  disabled={saving}
+                  onClick={async () => {
+                    setSaving(true);
+                    try {
+                      const info = getModelInfo();
+                      await api.saveEstimate({
+                        label: saveLabel || estimate.model_name,
+                        estimate: estimate as any,
+                        model_name: estimate.model_name,
+                        cloud_provider: estimate.cloud_provider,
+                        total_cost_monthly: estimate.cost_breakdown.total_cost_monthly,
+                        parameters_billion: info?.parameters_billion,
+                      });
+                      setSaveLabel("");
+                      alert("Estimate saved!");
+                    } catch {}
+                    setSaving(false);
+                  }}
+                >
+                  {saving ? "Saving..." : "Save Estimate"}
+                </button>
+              </div>
+            )}
+
+            {shareUrl && (
+              <div className="flex items-center gap-2 rounded-lg bg-brand-900/30 px-3 py-2 text-sm">
+                <span className="text-brand-300 truncate max-w-xs">{shareUrl}</span>
+                <button
+                  className="text-brand-400 hover:text-brand-300 text-xs"
+                  onClick={() => {
+                    navigator.clipboard.writeText(shareUrl);
+                  }}
+                >
+                  Copy
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Optimization Panel */}
+          <div className="mt-6">
+            <OptimizationPanel
+              estimate={estimate}
+              parameters_billion={getModelInfo()?.parameters_billion || 7}
+              precision={precision}
+              context_length={contextLength}
+              cloud_provider={provider}
+              expected_qps={qps}
+              hours_per_day={hoursPerDay}
+              days_per_month={daysPerMonth}
+            />
+          </div>
         </div>
       )}
 

@@ -7,7 +7,7 @@ services:
     environment:
       POSTGRES_DB: llmplatform
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     ports:
       - "5432:5432"
     volumes:
@@ -37,12 +37,22 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/llmplatform
-      DATABASE_URL_SYNC: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/llmplatform
+      DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@postgres:5432/llmplatform
+      DATABASE_URL_SYNC: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/llmplatform
       REDIS_URL: redis://redis:6379/0
-      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
-      DEBUG: "false"
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-}
+      N8N_CALLBACK_SECRET: ${N8N_CALLBACK_SECRET:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      DEBUG: ${DEBUG:-false}
       HF_TOKEN: ${HF_TOKEN:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PRO_PRICE_ID: ${STRIPE_PRO_PRICE_ID:-}
+      STRIPE_ENTERPRISE_PRICE_ID: ${STRIPE_ENTERPRISE_PRICE_ID:-}
+      AGENT_LLM_API_KEY: ${AGENT_LLM_API_KEY:-}
+      AGENT_LLM_PROVIDER: ${AGENT_LLM_PROVIDER:-openai}
+      AGENT_LLM_MODEL: ${AGENT_LLM_MODEL:-gpt-4o-mini}
     depends_on:
       postgres:
         condition: service_healthy
@@ -73,9 +83,8 @@ services:
     environment:
       - N8N_BASIC_AUTH_ACTIVE=true
       - N8N_BASIC_AUTH_USER=${N8N_USER:-admin}
-      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD:-changeme}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD:?Set N8N_PASSWORD in .env}
       - WEBHOOK_URL=http://backend:8000
-      - WEBHOOK_SECRET=${SECRET_KEY:-dev-secret-key-change-in-production}
       - N8N_HOST=0.0.0.0
       - N8N_PORT=5678
       - N8N_PROTOCOL=http

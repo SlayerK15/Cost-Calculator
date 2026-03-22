@@ -13,6 +13,7 @@ from app.models.models import (
 )
 from app.api.subscription import require_tier
 from app.services.monitoring_service import generate_metrics_snapshot, generate_time_series, generate_scaling_events
+from app.services.forecaster import forecast_deployment
 
 router = APIRouter(prefix="/managed", tags=["managed-deployment"])
 
@@ -290,6 +291,17 @@ async def teardown_deployment(
     managed.cluster_endpoint = None
     await db.flush()
     return {"message": "Infrastructure torn down", "status": "terminated"}
+
+
+@router.get("/{managed_id}/forecast")
+async def get_forecast(
+    managed_id: str,
+    user=Depends(require_tier(UserTier.ENTERPRISE)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Forecast next month's costs based on usage trends."""
+    await _get_managed(managed_id, user.id, db)
+    return await forecast_deployment(managed_id, db)
 
 
 # ── Helpers ──

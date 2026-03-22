@@ -1,0 +1,76 @@
+# Automated PostgreSQL backups via pg_dump.
+# Stores compressed SQL dumps in a PVC (swap for S3/GCS in production).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: llm-platform
+spec:
+  schedule: "0 2 * * *"          # Daily at 02:00 UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backupLimit: 1
+      template:
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999          # postgres user
+          containers:
+            - name: pgdump
+              image: postgres:16-alpine
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+                  FILENAME="/backups/llmplatform-${TIMESTAMP}.sql.gz"
+                  echo "Starting backup → ${FILENAME}"
+                  PGPASSWORD="${POSTGRES_PASSWORD}" pg_dump \
+                    -h postgres-svc \
+                    -U postgres \
+                    -d llmplatform \
+                    --no-owner \
+                    --no-privileges \
+                    | gzip > "${FILENAME}"
+                  # Prune backups older than 30 days
+                  find /backups -name "*.sql.gz" -mtime +30 -delete
+                  echo "Backup complete: $(ls -lh ${FILENAME})"
+              env:
+                - name: POSTGRES_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: llm-platform-secrets
+                      key: POSTGRES_PASSWORD
+              volumeMounts:
+                - name: backup-storage
+                  mountPath: /backups
+              resources:
+                requests:
+                  memory: "128Mi"
+                  cpu: "100m"
+                limits:
+                  memory: "512Mi"
+                  cpu: "500m"
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+          volumes:
+            - name: backup-storage
+              persistentVolumeClaim:
+                claimName: postgres-backup-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-backup-pvc
+  namespace: llm-platform
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 20Gi

@@ -18,6 +18,7 @@ from app.schemas.cost import (
 )
 from app.services.cost_engine.calculator import estimate_cost
 from app.services.cost_engine.gpu_catalog import load_live_prices
+from app.services.optimizer import optimize_estimate
 
 router = APIRouter(prefix="/estimate", tags=["cost-estimation"])
 
@@ -412,3 +413,19 @@ async def compare_providers(
         model_name=model.name,
         estimates=estimates,
     )
+
+
+@router.post("/optimize")
+async def optimize_cost(req: PublicCostEstimateRequest):
+    """Analyze an estimate and suggest optimizations. No auth required."""
+    await load_live_prices()
+    report = optimize_estimate(
+        parameters_billion=req.parameters_billion,
+        precision=req.precision,
+        context_length=req.context_length,
+        cloud_provider=req.cloud_provider,
+        expected_qps=req.expected_qps,
+        hours_per_day=req.hours_per_day,
+        days_per_month=req.days_per_month,
+    )
+    return report

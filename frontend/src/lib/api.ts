@@ -538,3 +538,210 @@ export async function updateCostAlert(
 export async function deleteCostAlert(id: string): Promise<void> {
   return request(`/alerts/${id}`, { method: "DELETE" });
 }
+
+// ── Phase 6: Comparison & Sharing ──
+
+export async function compareModels(data: {
+  models: import("@/types").CompareModelEntry[];
+  cloud_provider: string;
+  expected_qps?: number;
+  hours_per_day?: number;
+  days_per_month?: number;
+}): Promise<import("@/types").CompareModelsResponse> {
+  return request("/compare/models", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function createShare(data: {
+  estimate: Record<string, any>;
+  api_comparison?: Record<string, any> | null;
+  model_name: string;
+  cloud_provider: string;
+  total_cost_monthly: number;
+}): Promise<{ share_token: string; share_url: string }> {
+  return request("/share/create", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getSharedEstimate(
+  token: string
+): Promise<import("@/types").SharedEstimateData> {
+  return request(`/share/${token}`);
+}
+
+export async function saveEstimate(data: {
+  label: string;
+  estimate: Record<string, any>;
+  model_name: string;
+  cloud_provider: string;
+  total_cost_monthly: number;
+  parameters_billion?: number;
+}): Promise<import("@/types").SavedEstimateItem> {
+  return request("/saved/estimates", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function listSavedEstimates(): Promise<
+  import("@/types").SavedEstimateItem[]
+> {
+  return request("/saved/estimates");
+}
+
+export async function deleteSavedEstimate(id: string): Promise<void> {
+  return request(`/saved/estimates/${id}`, { method: "DELETE" });
+}
+
+// ── Phase 7: Intelligence ──
+
+export async function recommendModels(data: {
+  use_case: string;
+  max_budget_monthly: number;
+  cloud_provider?: string;
+  precision?: string;
+  min_context_length?: number;
+}): Promise<import("@/types").RecommendResponse> {
+  return request("/recommend/models", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function optimizeEstimate(data: {
+  model_name: string;
+  parameters_billion: number;
+  precision: string;
+  context_length: number;
+  cloud_provider: string;
+  expected_qps?: number;
+  hours_per_day?: number;
+  days_per_month?: number;
+}): Promise<import("@/types").OptimizationReport> {
+  return request("/estimate/optimize", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getManagedForecast(
+  id: string
+): Promise<import("@/types").ForecastResult> {
+  return request(`/managed/${id}/forecast`);
+}
+
+// ── Infrastructure Agent ──
+
+export async function generateInfra(data: {
+  model_name: string;
+  parameters_billion: number;
+  precision: string;
+  context_length: number;
+  cloud_provider: string;
+  iac_language: string;
+  region: string;
+  gpu_count: number;
+  replicas: number;
+  enable_monitoring: boolean;
+  enable_autoscaling: boolean;
+  custom_requirements: string;
+}): Promise<import("@/types").InfraGenerateResponse> {
+  return request("/infra/generate", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function searchInfra(data: {
+  query: string;
+  cloud_provider?: string;
+}): Promise<import("@/types").InfraSearchResponse> {
+  return request("/infra/search", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+// ── Phase 8: Agent Chatbot ──
+
+export async function sendAgentMessage(
+  message: string,
+  context: Record<string, any>,
+  history: Array<{ role: string; content: string }>,
+  onChunk: (chunk: string) => void,
+): Promise<string> {
+  const token = getToken();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/agent/chat`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ message, context, history }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Agent error" }));
+    throw new Error(err.detail || "Agent request failed");
+  }
+
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let fullResponse = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const text = decoder.decode(value, { stream: true });
+    // Parse SSE lines
+    for (const line of text.split("\n")) {
+      if (line.startsWith("data: ")) {
+        const data = line.slice(6);
+        if (data === "[DONE]") break;
+        fullResponse += data;
+        onChunk(data);
+      }
+    }
+  }
+
+  return fullResponse;
+}
+
+// ── Phase 9: Workflow ──
+
+export async function triggerWorkflow(data: {
+  domain: string;
+  use_case: string;
+  base_model?: string;
+}): Promise<any> {
+  return request("/workflow/trigger", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function listWorkflowRuns(): Promise<any[]> {
+  return request("/workflow/runs");
+}
+
+export async function getWorkflowRun(id: string): Promise<any> {
+  return request(`/workflow/runs/${id}`);
+}
+
+export async function sendAgentMessageSync(
+  message: string,
+  context: Record<string, any>,
+  history: Array<{ role: string; content: string }>,
+): Promise<string> {
+  const res = await request<{ message: string }>("/agent/chat/sync", {
+    method: "POST",
+    body: JSON.stringify({ message, context, history }),
+  });
+  return res.message;
+}

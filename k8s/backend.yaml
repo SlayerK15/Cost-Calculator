@@ -1,0 +1,260 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-svc
+  namespace: llm-platform
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 8000
+      targetPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: llm-platform
+  labels:
+    app.kubernetes.io/part-of: llm-platform
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0          # Zero-downtime deploys
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+      annotations:
+        # Force rollout when secrets change (hash triggers new pods)
+        checksum/secrets: "PLACEHOLDER"
+    spec:
+      serviceAccountName: backend-sa
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+
+      # ── Init: wait for Postgres + run Alembic migrations ──
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for PostgreSQL..."
+              until pg_isready -h postgres-svc -p 5432 -U postgres; do
+                sleep 2
+              done
+              echo "PostgreSQL is ready."
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "50m"
+            limits:
+              memory: "64Mi"
+              cpu: "100m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+        - name: db-migrate
+          image: llm-platform/backend:latest    # Same image as main container
+          command:
+            - python
+            - -c
+            - |
+              import asyncio
+              from app.core.database import init_db
+              asyncio.run(init_db())
+              print("Database tables created/verified.")
+          envFrom:
+            - configMapRef:
+                name: llm-platform-config
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: llm-platform-secrets
+                  key: POSTGRES_PASSWORD
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: llm-platform-secrets
+                  key: REDIS_PASSWORD
+            - name: DATABASE_URL
+              value: "postgresql+asyncpg://postgres:$(POSTGRES_PASSWORD)@postgres-svc:5432/llmplatform"
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: llm-platform-secrets
+                  key: SECRET_KEY
+            - name: CREDENTIAL_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: llm-platform-secrets
+                  key: CREDENTIAL_ENCRYPTION_KEY
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "250m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+      # ── Main container ──
+      containers:
+        - name: backend
+          image: llm-platform/backend:latest    # Replace with your registry
+          ports:
+            - containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: llm-platform-config
+          env:
+            # ── Database (secrets composed into connection string) ──
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: llm-platform-secrets
+                  key: POSTGRES_PASSWORD
+            - name: DATABASE_URL
+              value: "postgresql+asyncpg://postgres:$(POSTGRES_PASSWORD)@postgres-svc:5432/llmplatform"
+            - name: DATABASE_URL_SYNC
+              value: "postgresql://postgres:$(POSTGRES_PASSWORD)@postgres-svc:5432/llmplatform"
+
+            # ── Redis (password-authenticated) ──
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: llm-platform-secrets
+                  key: REDIS_PASSWORD
+            - name: REDIS_URL
+              value: "redis://:$(REDIS_PASSWORD)@redis-svc:6379/0"
+
+            # ── Auth & encryption (all from secrets) ──
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: llm-platform-secrets
+                  key: SECRET_KEY
+            - name: CREDENTIAL_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: llm-platform-secrets
+                  key: CREDENTIAL_ENCRYPTION_KEY
+            - name: N8N_CALLBACK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: llm-platform-secrets
+                  key: N8N_CALLBACK_SECRET
+
+            # ── Stripe (from secrets) ──
+            - name: STRIPE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: llm-platform-secrets
+                  key: STRIPE_SECRET_KEY
+            - name: STRIPE_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: llm-platform-secrets
+                  key: STRIPE_WEBHOOK_SECRET
+            - name: STRIPE_PRO_PRICE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: llm-platform-secrets
+                  key: STRIPE_PRO_PRICE_ID
+            - name: STRIPE_ENTERPRISE_PRICE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: llm-platform-secrets
+                  key: STRIPE_ENTERPRISE_PRICE_ID
+
+            # ── AI / ML (from secrets) ──
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: llm-platform-secrets
+                  key: HF_TOKEN
+            - name: AGENT_LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: llm-platform-secrets
+                  key: AGENT_LLM_API_KEY
+
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 2
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 10   # 50 seconds max startup
+
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp       # uvicorn needs /tmp for writes
+
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: backend
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 100Mi

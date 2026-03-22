@@ -10,6 +10,9 @@ const PUBLIC_NAV = [
   { href: "/", label: "Home" },
   { href: "/models", label: "Models" },
   { href: "/estimate", label: "Cost Calculator" },
+  { href: "/compare", label: "Compare" },
+  { href: "/infra", label: "Infra Agent" },
+  { href: "/recommend", label: "Recommend" },
   { href: "/pricing", label: "Pricing" },
 ];
 
@@ -19,6 +22,7 @@ const AUTH_NAV = [
   { href: "/deploy", label: "Deploy" },
   { href: "/managed", label: "Managed" },
   { href: "/dashboard", label: "Dashboard" },
+  { href: "/workflow", label: "Workflow" },
   { href: "/settings/alerts", label: "Alerts" },
   { href: "/settings/credentials", label: "Credentials" },
 ];
