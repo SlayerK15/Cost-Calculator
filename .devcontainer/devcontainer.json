@@ -1,17 +1,15 @@
 {
-  "name": "LLM Cost Calculator",
+  "name": "Cost Calculator",
   "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bookworm",
 
   "features": {
-    "ghcr.io/devcontainers/features/node:1": { "version": "20" },
-    "ghcr.io/devcontainers/features/docker-in-docker:2": { "dockerDashComposeVersion": "v2" }
+    "ghcr.io/devcontainers/features/node:1": { "version": "20" }
   },
 
-  "forwardPorts": [3000, 8000, 5678, 5432, 6379],
+  "forwardPorts": [3000, 8000, 5432, 6379],
   "portsAttributes": {
     "3000": { "label": "Frontend", "onAutoForward": "openBrowser" },
     "8000": { "label": "Backend API", "onAutoForward": "notify" },
-    "5678": { "label": "n8n Workflows", "onAutoForward": "notify" },
     "5432": { "label": "PostgreSQL", "onAutoForward": "silent" },
     "6379": { "label": "Redis", "onAutoForward": "silent" }
   },
@@ -24,26 +22,12 @@
         "ms-python.python",
         "ms-python.vscode-pylance",
         "dbaeumer.vscode-eslint",
-        "esbenp.prettier-vscode",
-        "hashicorp.terraform",
-        "ms-azuretools.vscode-docker"
+        "esbenp.prettier-vscode"
       ],
       "settings": {
-        "python.defaultInterpreterPath": "/workspace/backend/venv/bin/python",
+        "python.defaultInterpreterPath": "/workspaces/Cost-Calculator/backend/venv/bin/python",
         "editor.formatOnSave": true
       }
-    }
-  },
-
-  "secrets": {
-    "POSTGRES_PASSWORD": {
-      "description": "PostgreSQL password (any strong value)"
-    },
-    "SECRET_KEY": {
-      "description": "JWT signing key — generate with: openssl rand -hex 32"
-    },
-    "N8N_PASSWORD": {
-      "description": "n8n admin password (any strong value)"
     }
   }
 }
